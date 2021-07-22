@@ -1,8 +1,9 @@
 #!/usr/bin/python
 # -*- coding: UTF-8 -*-
-import requests,os,sys,re
+import requests,os,sys,re,time
 import datetime, json
 from bs4 import BeautifulSoup
+import threading, concurrent.futures
 
 Cookies = None
 download_path = "{}/Anime1_Download".format(os.getcwd())
@@ -20,14 +21,15 @@ headers = {
 }
 
 def Anime_Season(url):
-    URLS = []
+    urls = []
     # https://anime1.me/category/.../...
     r = requests.post(url, headers = headers)
     soup = BeautifulSoup(r.text, 'lxml') 
     h2 = soup.find_all('h2', class_="entry-title")
     for i in h2:
         url = i.find("a", attrs={"rel": "bookmark"}).get('href')
-        URLS.append(url)
+        urls.append(url)
+    return urls
     
 
 
@@ -78,20 +80,32 @@ def MP4_DL(Download_URL, Video_Name):
         print("\033[1;31mFailure\033[0m：{}".format(r.status_code)) 
 
 if __name__ == '__main__':     
+    url_list = []
     if not os.path.exists(download_path):
         os.mkdir(download_path)
 
-    anime_url = input("Anime1 URL：")
-    # anime_url = "https://anime1.me/15606"
-    # anime_url = "https://anime1.me/category/2021%e5%b9%b4%e6%98%a5%e5%ad%a3/edens-zero"
+    anime_urls = input("Anime1 URL：").split(',') 
+    # https://anime1.me/15456, https://anime1.me/15603, https://anime1.me/15556, https://anime1.me/15499
+    # https://anime1.me/category/2021%e5%b9%b4%e6%98%a5%e5%ad%a3/edens-zero
     
-    # 區分連結類型
-    if re.search(r"anime1.me/category/(.*?)", anime_url, re.M|re.I):
-        Anime_Season(anime_url)
-    elif re.search(r"anime1.me/[0-9]", anime_url, re.M|re.I):
-        Anime_Episode(anime_url)
-    else:
-        print("I don't like this link. QAQ")
+    for anime_url in anime_urls:
+        # 區分連結類型
+        if re.search(r"anime1.me/category/(.*?)", anime_url, re.M|re.I):
+            url_list.extend(Anime_Season(anime_url))
+        elif re.search(r"anime1.me/[0-9]", anime_url, re.M|re.I):
+            url_list.append(anime_url)
+        else:
+            print("I don't like this link. QAQ")
+    
+    ## Multithreading ## 
+    start_time = time.time()
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        executor.map(Anime_Episode, url_list)
+    
+    end_time = time.time()
+    
+    print(f"共耗時 {end_time - start_time} 秒（{len(url_list)} 個已下載）")
 
     
     
