@@ -1,11 +1,10 @@
 #!/usr/bin/python
 # -*- coding: UTF-8 -*-
-import requests,os,sys,re,time
-import datetime, json
 from bs4 import BeautifulSoup
-import threading, concurrent.futures
+from alive_progress import alive_bar
+import requests, os, re, time, json
+import  concurrent.futures
 
-Cookies = None
 download_path = "{}/Anime1_Download".format(os.getcwd())
 
 # 設定 Header 
@@ -30,8 +29,6 @@ def Anime_Season(url):
         url = i.find("a", attrs={"rel": "bookmark"}).get('href')
         urls.append(url)
     return urls
-    
-
 
 def Anime_Episode(url):
     #1 https://anime1.me/...
@@ -50,15 +47,17 @@ def Anime_Episode(url):
     r = requests.post('https://v.anime1.me/api',headers = headers,data = xsend)
     url = 'https:{}'.format(json.loads(r.text)['l'])
     
-    global Cookies
     set_cookie = r.headers['set-cookie']
     cookie_e = re.search(r"e=(.*?);", set_cookie, re.M|re.I).group(1)
     cookie_p = re.search(r"p=(.*?);", set_cookie, re.M|re.I).group(1)
     cookie_h = re.search(r"HttpOnly, h=(.*?);", set_cookie, re.M|re.I).group(1)
-    Cookies = 'e={};p={};h={};'.format(cookie_e, cookie_p, cookie_h)
-    MP4_DL(url, title)
+    cookies = 'e={};p={};h={};'.format(cookie_e, cookie_p, cookie_h)
+    MP4_DL(url, title, cookies)
 
-def MP4_DL(Download_URL, Video_Name):
+def MP4_DL(Download_URL, Video_Name, Cookies):
+    # 每次下載的資料大小
+    chunk_size = 10240 
+
     headers_cookies ={
         "accept": "*/*",
         "accept-encoding": 'identity;q=1, *;q=0',
@@ -68,14 +67,20 @@ def MP4_DL(Download_URL, Video_Name):
         "user-agent": 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36'
     }
     
-    r = requests.get(Download_URL, headers = headers_cookies) 
-    if(r.status_code == 200):
-        with open(os.path.join(download_path,  '{}.mp4'.format(Video_Name)), 'wb') as f:
-            f.write(r.content)
-            f.flush()
-            f.close()
+    r = requests.get(Download_URL, headers = headers_cookies, stream=True) 
+    # 影片大小
+    content_length = int(r.headers['content-length']) 
 
-        print("\033[1;34mSuccess\033[0m") 
+    if(r.status_code == 200):
+        print('+ \033[1;34m{}\033[0m [{size:.2f} MB]'.format(Video_Name, size = content_length / 1024 / 1024))
+        # Progress Bar
+        with alive_bar(round(content_length / chunk_size), spinner = 'ball_scrolling', bar = 'blocks' ) as bar:
+            with open(os.path.join(download_path,  '{}.mp4'.format(Video_Name)), 'wb') as f:
+                for data in r.iter_content(chunk_size = chunk_size):
+                    f.write(data)
+                    f.flush()
+                    bar()
+            f.close()
     else:
         print("\033[1;31mFailure\033[0m：{}".format(r.status_code)) 
 
@@ -87,6 +92,8 @@ if __name__ == '__main__':
     anime_urls = input("Anime1 URL：").split(',') 
     # https://anime1.me/15456, https://anime1.me/15603, https://anime1.me/15556, https://anime1.me/15499
     # https://anime1.me/category/2021%e5%b9%b4%e6%98%a5%e5%ad%a3/edens-zero
+
+    Anime_Episode("https://anime1.me/15456")
     
     for anime_url in anime_urls:
         # 區分連結類型
@@ -95,7 +102,7 @@ if __name__ == '__main__':
         elif re.search(r"anime1.me/[0-9]", anime_url, re.M|re.I):
             url_list.append(anime_url)
         else:
-            print("I don't like this link. QAQ")
+            print("\033[1;31mI don't like this link. QAQ\033[0m")
     
     ## Multithreading ## 
     start_time = time.time()
