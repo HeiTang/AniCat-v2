@@ -82,7 +82,7 @@ def MP4_DL(Download_URL, Video_Name, Cookies):
                     bar()
             f.close()
     else:
-        print("\033[1;31mFailure\033[0m：{}".format(r.status_code)) 
+        print("- \033[1;31mFailure\033[0m：{}".format(r.status_code)) 
 
 if __name__ == '__main__':     
     url_list = []
@@ -90,10 +90,6 @@ if __name__ == '__main__':
         os.mkdir(download_path)
 
     anime_urls = input("Anime1 URL：").split(',') 
-    # https://anime1.me/15456, https://anime1.me/15603, https://anime1.me/15556, https://anime1.me/15499
-    # https://anime1.me/category/2021%e5%b9%b4%e6%98%a5%e5%ad%a3/edens-zero
-
-    Anime_Episode("https://anime1.me/15456")
     
     for anime_url in anime_urls:
         # 區分連結類型
@@ -102,7 +98,7 @@ if __name__ == '__main__':
         elif re.search(r"anime1.me/[0-9]", anime_url, re.M|re.I):
             url_list.append(anime_url)
         else:
-            print("\033[1;31mI don't like this link. QAQ\033[0m")
+            print("- \033[1;31mUnable to support this link. QAQ ({})\033[0m".format(anime_url))
     
     ## Multithreading ## 
     start_time = time.time()
@@ -112,7 +108,7 @@ if __name__ == '__main__':
     
     end_time = time.time()
     
-    print(f"共耗時 {end_time - start_time} 秒（{len(url_list)} 個已下載）")
+    print(f"+ 共耗時 {end_time - start_time} 秒（{len(url_list)} 個已下載）")
 
     
     
