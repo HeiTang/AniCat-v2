@@ -2,7 +2,7 @@
 # -*- coding: UTF-8 -*-
 from bs4 import BeautifulSoup
 from alive_progress import alive_bar
-import requests, os, re, time, json
+import requests, os, re, time, json, sys
 # import  concurrent.futures
 
 download_path = "{}/Anime1_Download".format(os.getcwd())
@@ -96,7 +96,7 @@ if __name__ == '__main__':
     if not os.path.exists(download_path):
         os.mkdir(download_path)
 
-    anime_urls = input("Anime1 URL：").split(',') 
+    anime_urls = input("? Anime1 URL：").split(',') 
     
     for anime_url in anime_urls:
         # 區分連結類型
@@ -106,6 +106,7 @@ if __name__ == '__main__':
             url_list.append(anime_url)
         else:
             print("- \033[1;31mUnable to support this link. QAQ ({})\033[0m".format(anime_url))
+            sys.exit(0)
     
     start_time = time.time()
 
