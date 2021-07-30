@@ -3,7 +3,7 @@
 from bs4 import BeautifulSoup
 from alive_progress import alive_bar
 import requests, os, re, time, json
-import  concurrent.futures
+# import  concurrent.futures
 
 download_path = "{}/Anime1_Download".format(os.getcwd())
 
@@ -100,11 +100,14 @@ if __name__ == '__main__':
         else:
             print("- \033[1;31mUnable to support this link. QAQ ({})\033[0m".format(anime_url))
     
-    ## Multithreading ## 
     start_time = time.time()
-    
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        executor.map(Anime_Episode, url_list)
+
+    ## Multithreading ##
+    # with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+    #     executor.map(Anime_Episode, url_list)
+
+    for url in url_list:
+        Anime_Episode(url)
     
     end_time = time.time()
     
