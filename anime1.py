@@ -28,6 +28,13 @@ def Anime_Season(url):
     for i in h2:
         url = i.find("a", attrs={"rel": "bookmark"}).get('href')
         urls.append(url)
+
+    # NextPage
+    if(soup.find('div', class_ = 'nav-previous')):
+        ele_div = soup.find('div', class_ = 'nav-previous')
+        NextUrl = ele_div.find('a').get('href')
+        urls.extend(Anime_Season(NextUrl))
+    
     return urls
 
 def Anime_Episode(url):
