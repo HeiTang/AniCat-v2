@@ -41,18 +41,19 @@ def Anime_Episode(url):
     #1 https://anime1.me/...
     r = requests.post(url, headers = headers)
     soup = BeautifulSoup(r.text, 'lxml') 
-    url = soup.find('iframe').get('src')
-    title = soup.find('h1', class_="entry-title").text
+    data = soup.find('video', class_ = 'video-js')['data-apireq']
+    title = soup.find('h2', class_="entry-title").text
 
-    #2 https://v.anime1.me/watch?v=...
-    r = requests.post(url,headers = headers)
-    soup = BeautifulSoup(r.text, 'lxml') 
-    script_text = soup.find_all("script")[1].string
-    xsend = 'd={}'.format(re.search(r"'d=(.*?)'", script_text, re.M|re.I).group(1))
+    # #2 https://v.anime1.me/watch?v=...
+    # r = requests.post(url,headers = headers)
+    # soup = BeautifulSoup(r.text, 'lxml') 
+    # script_text = soup.find_all("script")[1].string
+    # xsend = 'd={}'.format(re.search(r"'d=(.*?)'", script_text, re.M|re.I).group(1))
+    xsend = 'd={}'.format(data)
 
     #3 APIv2
     r = requests.post('https://v.anime1.me/api',headers = headers,data = xsend)
-    url = 'https:{}'.format(json.loads(r.text)['l'])
+    url = 'https:{}'.format(json.loads(r.text)['s']['src'])
     
     set_cookie = r.headers['set-cookie']
     cookie_e = re.search(r"e=(.*?);", set_cookie, re.M|re.I).group(1)
@@ -96,7 +97,7 @@ if __name__ == '__main__':
     if not os.path.exists(download_path):
         os.mkdir(download_path)
 
-    anime_urls = input("? Anime1 URL：").split(',') 
+    anime_urls = input("? Anime1 URL：").split(',')
     
     for anime_url in anime_urls:
         # 區分連結類型
