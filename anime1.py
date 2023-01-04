@@ -82,10 +82,9 @@ def MP4_DL(Download_URL, Video_Name, Cookies):
     if(r.status_code == 200):
         print('+ \033[1;34m{}\033[0m [{size:.2f} MB]'.format(Video_Name, size = content_length / 1024 / 1024))
         # Progress Bar
-        with alive_bar(round(content_length / chunk_size)) as bar:
+        with alive_bar(round(content_length / chunk_size), spinner = 'ball_scrolling', bar = 'blocks' ) as bar:
             with open(os.path.join(download_path,  '{}.mp4'.format(Video_Name)), 'wb') as f:
                 for data in r.iter_content(chunk_size = chunk_size):
-                    time.sleep(.005)
                     f.write(data)
                     f.flush()
                     bar()
