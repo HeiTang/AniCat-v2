@@ -2,7 +2,7 @@
 # -*- coding: UTF-8 -*-
 from bs4 import BeautifulSoup
 from alive_progress import alive_bar
-import requests, os, re, time, json, sys
+import requests, os, re, time, json, sys, math
 # import  concurrent.futures
 
 download_path = "{}/Anime1_Download".format(os.getcwd())
@@ -53,12 +53,34 @@ def Anime_Episode(url):
 
     #3 APIv2
     r = requests.post('https://v.anime1.me/api',headers = headers,data = xsend)
-    url = 'https:{}'.format(json.loads(r.text)['s']['src'])
-    
-    set_cookie = r.headers['set-cookie']
-    cookie_e = re.search(r"e=(.*?);", set_cookie, re.M|re.I).group(1)
-    cookie_p = re.search(r"p=(.*?);", set_cookie, re.M|re.I).group(1)
-    cookie_h = re.search(r"HttpOnly, h=(.*?);", set_cookie, re.M|re.I).group(1)
+    api_data = json.loads(r.text)
+    stream = api_data.get('s')
+    if isinstance(stream, list):
+        stream = stream[0] if stream else {}
+
+    if not isinstance(stream, dict) or 'src' not in stream:
+        raise RuntimeError('Unable to parse Anime1 API response: {}'.format(r.text))
+
+    url = stream['src']
+    if url.startswith('//'):
+        url = 'https:{}'.format(url)
+
+    cookie_e = r.cookies.get('e')
+    cookie_p = r.cookies.get('p')
+    cookie_h = r.cookies.get('h')
+
+    if not (cookie_e and cookie_p and cookie_h):
+        set_cookie = r.headers.get('set-cookie', '')
+        e_match = re.search(r"e=(.*?);", set_cookie, re.M|re.I)
+        p_match = re.search(r"p=(.*?);", set_cookie, re.M|re.I)
+        h_match = re.search(r"h=(.*?);", set_cookie, re.M|re.I)
+        cookie_e = cookie_e or (e_match.group(1) if e_match else None)
+        cookie_p = cookie_p or (p_match.group(1) if p_match else None)
+        cookie_h = cookie_h or (h_match.group(1) if h_match else None)
+
+    if not (cookie_e and cookie_p and cookie_h):
+        raise RuntimeError('Unable to parse Anime1 access cookies')
+
     cookies = 'e={};p={};h={};'.format(cookie_e, cookie_p, cookie_h)
     MP4_DL(url, title, cookies)
 
@@ -82,7 +104,7 @@ def MP4_DL(Download_URL, Video_Name, Cookies):
     if(r.status_code == 200):
         print('+ \033[1;34m{}\033[0m [{size:.2f} MB]'.format(Video_Name, size = content_length / 1024 / 1024))
         # Progress Bar
-        with alive_bar(round(content_length / chunk_size), spinner = 'ball_scrolling', bar = 'blocks' ) as bar:
+        with alive_bar(math.ceil(content_length / chunk_size), spinner = 'dots', bar = 'blocks' ) as bar:
             with open(os.path.join(download_path,  '{}.mp4'.format(Video_Name)), 'wb') as f:
                 for data in r.iter_content(chunk_size = chunk_size):
                     f.write(data)
