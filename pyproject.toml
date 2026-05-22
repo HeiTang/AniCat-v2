@@ -38,7 +38,7 @@ ignore = [
 ]
 
 [tool.pyright]
-include = ["src/anicat", "tests", "anime1.py"]
+include = ["src/anicat", "tests"]
 pythonVersion = "3.12"
 typeCheckingMode = "basic"
 reportMissingTypeStubs = false
