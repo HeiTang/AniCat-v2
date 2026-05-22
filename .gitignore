@@ -1,4 +1,12 @@
 **/.DS_Store
 **/.git
 **/__pycache__
-
+.coverage
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+*.mp4.part
+Anime1_Download/
+build/
+dist/

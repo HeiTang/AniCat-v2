@@ -1,46 +1,62 @@
 # AniCat-v2
 
-AniCat-v2 為一個 [Anime1.me](https://anime1.me/) 的下載器。
+Anime1 下載器。現在核心是可測試 package，CLI 只是薄入口。
 
-## 功能
-- 支援多連結輸入
-- 支援下載進度條
+## 安裝
 
-## 使用方法
+```bash
+poetry install
+```
 
-1. 建立環境
-    
-    ```
-    pip3 install -r requirements.txt 
-    ```
+或使用 `requirements.txt`：
 
-2. 執行 Python
+```bash
+python3 -m pip install -r requirements.txt
+```
 
-    ```
-    python3 anime1.py 
-    ```
+## 使用
 
-3. 輸入 [Anime1.me](https://anime1.me/) 的動畫連結
+```bash
+poetry run anicat https://anime1.me/15651
+poetry run anicat https://anime1.me/category/... -o ./Anime1_Download -c 3
+```
 
-    - 支援的連結格式
-        
-        - 單季連結：`https://anime1.me/category/...`
-        - 單集連結：：`https://anime1.me/...`
-        - 範例
-        
-            ```
-            ? Anime1 URL：https://anime1.me/category/2021年冬季/關於我轉生變成史萊姆這檔事-第二季
-            ? Anime1 URL：https://anime1.me/15651
-            ```
-    - 支援多連結
-        - 連結間以 `,` 區隔
-        - 範例
-            
-            ```
-            ? Anime1 URL：https://anime1.me/15651,https://anime1.me/15603
-            ? Anime1 URL：https://anime1.me/15651,https://anime1.me/category/2021年冬季/關於我轉生變成史萊姆這檔事-第二季
-            ```
+相容舊入口：
 
-## TODO
-- [ ] 平行化下載
-- [ ] GUI 介面
+```bash
+python3 anime1.py https://anime1.me/15651
+```
+
+支援：
+
+- 單集 URL：`https://anime1.me/15651`
+- 分類/季度 URL：`https://anime1.me/category/...`
+- 多 URL：可用空白或逗號分隔
+- 併發下載：`--concurrency 3`
+- Rich 多任務進度列：總體下載量 + 併發中的單檔進度
+- 斷點續傳：預設啟用，暫存檔為 `*.mp4.part`
+- 覆寫既有檔案：`--overwrite`
+- 停用續傳：`--no-resume`
+- 停用進度列：`--no-progress`
+
+## 架構
+
+- `anicat.client`：HTTP session、timeout、retry/backoff、cookie 管理。
+- `anicat.extractor`：HTML/API 解析，只負責把上游資料轉成 domain model。
+- `anicat.downloader`：檔名清理、`.part` 原子下載、resume、檔案完整性檢查。
+- `anicat.service`：use case orchestration，負責 URL 展開與併發 job 隔離。
+- `anicat.progress`：Rich-based 多任務進度 UI，和下載核心解耦。
+- `anicat.cli`：CLI 參數解析與輸出，不放業務邏輯。
+- `tests`：離線單元測試，不依賴 Anime1 網路狀態。
+- 採用 `src/` layout，讓測試與 CLI 走安裝後的 package，避免 repo root import shadowing。
+
+## 驗證
+
+```bash
+poetry run ruff format --check .
+poetry run ruff check .
+poetry run pyright
+poetry run python -m unittest
+poetry run python -m compileall src/anicat anime1.py tests
+poetry check
+```
