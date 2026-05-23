@@ -52,7 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--retries",
         type=int,
         default=3,
-        help="HTTP retry count. Default: 3",
+        help="HTTP and stream retry count. Default: 3",
     )
     parser.add_argument(
         "--chunk-size",

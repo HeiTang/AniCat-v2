@@ -113,6 +113,7 @@ class AniCatService:
                 resume=self.options.resume,
                 overwrite=self.options.overwrite,
                 progress=on_progress,
+                stream_retries=self.options.retries,
             )
             LOGGER.info("%s episode: %s", result.status.title(), result.episode.title)
             return JobReport(url=url, result=result)

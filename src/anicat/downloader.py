@@ -3,8 +3,11 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
+
+import requests
 
 from .errors import DownloadError
 from .models import DownloadProgressEvent, DownloadResult, Episode, VideoStreamResponse
@@ -25,6 +28,15 @@ WINDOWS_RESERVED_NAMES = {
 ProgressCallback = Callable[[DownloadProgressEvent], None]
 WriteMode = Literal["ab", "wb"]
 LOGGER = logging.getLogger(__name__)
+CONTENT_RANGE_PATTERN = re.compile(r"^bytes (?P<start>\d+)-(?P<end>\d+)/(?P<total>\d+|\*)$")
+
+
+@dataclass
+class StreamState:
+    """Mutable identity state collected across stream retry attempts."""
+
+    total_bytes: int | None = None
+    validator: str | None = None
 
 
 class VideoSource(Protocol):
@@ -73,6 +85,7 @@ def download_episode(
     resume: bool = True,
     overwrite: bool = False,
     progress: ProgressCallback | None = None,
+    stream_retries: int = 3,
 ) -> DownloadResult:
     """Download one episode with atomic writes, resume support, and validation."""
 
@@ -85,26 +98,17 @@ def download_episode(
         return skipped
 
     resume_from = _prepare_partial_file(path, part_path, resume=resume, overwrite=overwrite)
-    response = _open_video_stream(client, episode, resume_from)
-
-    try:
-        resume_from = _normalize_resume_state(response, part_path, resume_from)
-        total_bytes = _total_bytes(response.headers, resume_from, response.status_code)
-        written = _write_response_body(
-            response,
-            part_path,
-            episode,
-            mode=_write_mode(resume_from),
-            chunk_size=chunk_size,
-            resume_from=resume_from,
-            total_bytes=total_bytes,
-            progress=progress,
-        )
-        _ensure_complete(episode, written, total_bytes)
-        part_path.replace(path)
-        return _downloaded_result(episode, path, written, total_bytes)
-    finally:
-        response.close()
+    written, total_bytes = _download_stream(
+        client,
+        episode,
+        part_path,
+        initial_resume_from=resume_from,
+        chunk_size=chunk_size,
+        progress=progress,
+        stream_retries=stream_retries,
+    )
+    part_path.replace(path)
+    return _downloaded_result(episode, path, written, total_bytes)
 
 
 def _partial_path(path: Path) -> Path:
@@ -165,20 +169,132 @@ def _open_video_stream(
     client: VideoSource,
     episode: Episode,
     resume_from: int,
+    validator: str | None = None,
 ) -> VideoStreamResponse:
     """Open a video stream, adding a Range header when resuming a partial file."""
 
     return client.stream_video(
         episode.stream_url,
         cookies=episode.cookies,
-        headers=_range_header(resume_from),
+        headers=_request_headers(resume_from, validator),
     )
 
 
-def _range_header(resume_from: int) -> dict[str, str]:
-    """Return HTTP Range headers for resumed downloads."""
+def _download_stream(
+    client: VideoSource,
+    episode: Episode,
+    part_path: Path,
+    *,
+    initial_resume_from: int,
+    chunk_size: int,
+    progress: ProgressCallback | None,
+    stream_retries: int,
+) -> tuple[int, int | None]:
+    """Download the response body, reopening the stream with Range after interruptions."""
 
-    return {"Range": f"bytes={resume_from}-"} if resume_from else {}
+    retry_limit = max(0, stream_retries)
+    resume_from = initial_resume_from
+    state = StreamState()
+
+    for attempt in range(retry_limit + 1):
+        try:
+            return _download_stream_attempt(
+                client,
+                episode,
+                part_path,
+                resume_from=resume_from,
+                chunk_size=chunk_size,
+                progress=progress,
+                state=state,
+            )
+        except (DownloadError, requests.RequestException) as error:
+            if attempt >= retry_limit:
+                raise
+
+            resume_from = _current_partial_size(part_path)
+            LOGGER.warning(
+                "Stream interrupted for %s: %s; retrying from byte %d (%d/%d)",
+                episode.title,
+                error,
+                resume_from,
+                attempt + 2,
+                retry_limit + 1,
+            )
+
+    raise DownloadError(f"stream retry loop exited unexpectedly for {episode.title}")
+
+
+def _download_stream_attempt(
+    client: VideoSource,
+    episode: Episode,
+    part_path: Path,
+    *,
+    resume_from: int,
+    chunk_size: int,
+    progress: ProgressCallback | None,
+    state: StreamState,
+) -> tuple[int, int | None]:
+    """Run one stream attempt and return written bytes with expected total size."""
+
+    response = _open_video_stream(client, episode, resume_from, state.validator)
+
+    try:
+        normalized_resume_from = _normalize_resume_state(response, part_path, resume_from)
+        if normalized_resume_from < resume_from:
+            state.validator = None
+            state.total_bytes = None
+            _emit_progress(
+                progress,
+                episode,
+                phase="advanced",
+                bytes_delta=-resume_from,
+                bytes_completed=0,
+                total_bytes=None,
+            )
+        range_info = _validate_resume_response(
+            response.headers,
+            normalized_resume_from,
+            response.status_code,
+        )
+        total_bytes = _resolve_total_bytes(
+            response.headers,
+            normalized_resume_from,
+            response.status_code,
+            range_info=range_info,
+        )
+        _update_stream_state(state, response.headers, total_bytes)
+        written = _write_response_body(
+            response,
+            part_path,
+            episode,
+            mode=_write_mode(normalized_resume_from),
+            chunk_size=chunk_size,
+            resume_from=normalized_resume_from,
+            total_bytes=total_bytes,
+            progress=progress,
+        )
+        _ensure_complete(episode, written, total_bytes)
+        return written, total_bytes
+    finally:
+        response.close()
+
+
+def _current_partial_size(part_path: Path) -> int:
+    """Return the current .part file size after a failed stream attempt."""
+
+    return part_path.stat().st_size if part_path.exists() else 0
+
+
+def _request_headers(resume_from: int, validator: str | None) -> dict[str, str]:
+    """Return HTTP headers for resumed downloads with optional If-Range protection."""
+
+    if not resume_from:
+        return {}
+
+    headers = {"Range": f"bytes={resume_from}-"}
+    if validator:
+        headers["If-Range"] = validator
+    return headers
 
 
 def _normalize_resume_state(
@@ -193,6 +309,100 @@ def _normalize_resume_state(
         part_path.unlink(missing_ok=True)
         return 0
     return resume_from
+
+
+def _validate_resume_response(
+    headers: Mapping[str, str],
+    resume_from: int,
+    status_code: int,
+) -> tuple[int, int, int | None] | None:
+    """Validate Content-Range before appending a resumed response body."""
+
+    if not resume_from:
+        return None
+    if status_code != 206:
+        raise DownloadError(f"resume request returned unexpected status {status_code}")
+
+    range_info = _parse_content_range(_header_value(headers, "Content-Range"))
+    if range_info is None:
+        raise DownloadError("resumed response is missing valid Content-Range")
+
+    start, end, _total = range_info
+    if start != resume_from:
+        raise DownloadError(f"resumed response starts at {start}, expected {resume_from}")
+    if end < start:
+        raise DownloadError(f"invalid Content-Range end before start: {start}-{end}")
+
+    return range_info
+
+
+def _parse_content_range(value: str | None) -> tuple[int, int, int | None] | None:
+    """Parse a Content-Range header into start, end, and total byte counts."""
+
+    if value is None:
+        return None
+
+    match = CONTENT_RANGE_PATTERN.fullmatch(value.strip())
+    if not match:
+        return None
+
+    total_value = match.group("total")
+    return (
+        int(match.group("start")),
+        int(match.group("end")),
+        None if total_value == "*" else int(total_value),
+    )
+
+
+def _resolve_total_bytes(
+    headers: Mapping[str, str],
+    resume_from: int,
+    status_code: int,
+    *,
+    range_info: tuple[int, int, int | None] | None,
+) -> int | None:
+    """Return expected final size using validated range or content length metadata."""
+
+    if status_code == 206 and range_info is not None:
+        return range_info[2]
+
+    content_length = _header_value(headers, "Content-Length")
+    if content_length and content_length.isdigit():
+        return resume_from + int(content_length)
+    return None
+
+
+def _update_stream_state(
+    state: StreamState,
+    headers: Mapping[str, str],
+    total_bytes: int | None,
+) -> None:
+    """Track stable stream identity across retry attempts."""
+
+    if state.total_bytes is None:
+        state.total_bytes = total_bytes
+    elif total_bytes is not None and state.total_bytes != total_bytes:
+        raise DownloadError(
+            f"stream size changed during retry: {state.total_bytes} -> {total_bytes}"
+        )
+
+    if state.validator is None:
+        state.validator = _stream_validator(headers)
+
+
+def _stream_validator(headers: Mapping[str, str]) -> str | None:
+    """Return a strong-enough If-Range validator from response headers."""
+
+    return _header_value(headers, "ETag") or _header_value(headers, "Last-Modified")
+
+
+def _header_value(headers: Mapping[str, str], name: str) -> str | None:
+    """Return a response header value case-insensitively."""
+
+    for key, value in headers.items():
+        if key.lower() == name.lower():
+            return value
+    return None
 
 
 def _write_mode(resume_from: int) -> WriteMode:
@@ -303,24 +513,3 @@ def _downloaded_result(
         bytes_written=bytes_written,
         total_bytes=total_bytes,
     )
-
-
-def _total_bytes(
-    headers: Mapping[str, str],
-    resume_from: int,
-    status_code: int,
-) -> int | None:
-    """Return expected final file size from response headers when available."""
-
-    if status_code == 206:
-        # For resumed responses, Content-Length is only the remaining byte count.
-        content_range = headers.get("content-range") or headers.get("Content-Range")
-        if content_range:
-            _, _, total = content_range.partition("/")
-            if total.isdigit():
-                return int(total)
-
-    content_length = headers.get("content-length") or headers.get("Content-Length")
-    if content_length and content_length.isdigit():
-        return resume_from + int(content_length)
-    return None
