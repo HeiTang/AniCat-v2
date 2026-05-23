@@ -40,7 +40,7 @@ ignore = [
 [tool.pyright]
 include = ["src/anicat", "tests"]
 pythonVersion = "3.12"
-typeCheckingMode = "basic"
+typeCheckingMode = "standard"
 reportMissingTypeStubs = false
 
 
