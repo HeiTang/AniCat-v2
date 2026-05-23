@@ -18,6 +18,7 @@ from rich.progress import (
     TransferSpeedColumn,
 )
 
+from .constants import PROGRESS_TITLE_MAX_LENGTH
 from .models import DownloadProgressEvent, JobReport
 
 
@@ -139,7 +140,7 @@ def overall_description(
     return " · ".join(parts)
 
 
-def trim_title(title: str, *, max_length: int = 42) -> str:
+def trim_title(title: str, *, max_length: int = PROGRESS_TITLE_MAX_LENGTH) -> str:
     """Normalize and truncate episode titles for compact terminal display."""
 
     normalized = " ".join(title.split())

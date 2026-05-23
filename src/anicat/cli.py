@@ -6,7 +6,13 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
-from .downloader import DEFAULT_CHUNK_SIZE
+from .constants import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_CONCURRENCY,
+    DEFAULT_OUTPUT_DIR_NAME,
+    DEFAULT_READ_TIMEOUT,
+    DEFAULT_RETRIES,
+)
 from .errors import AniCatError
 from .logging_config import configure_logging
 from .models import JobReport
@@ -43,27 +49,27 @@ def build_parser() -> argparse.ArgumentParser:
         "-o",
         "--output",
         type=Path,
-        default=Path.cwd() / "Anime1_Download",
-        help="Output directory. Default: ./Anime1_Download",
+        default=Path.cwd() / DEFAULT_OUTPUT_DIR_NAME,
+        help=f"Output directory. Default: ./{DEFAULT_OUTPUT_DIR_NAME}",
     )
     parser.add_argument(
         "-c",
         "--concurrency",
         type=int,
-        default=3,
-        help="Concurrent episode downloads. Default: 3",
+        default=DEFAULT_CONCURRENCY,
+        help=f"Concurrent episode downloads. Default: {DEFAULT_CONCURRENCY}",
     )
     parser.add_argument(
         "--timeout",
         type=float,
-        default=30.0,
-        help="HTTP read timeout in seconds. Default: 30",
+        default=DEFAULT_READ_TIMEOUT,
+        help=f"HTTP read timeout in seconds. Default: {DEFAULT_READ_TIMEOUT:g}",
     )
     parser.add_argument(
         "--retries",
         type=int,
-        default=3,
-        help="HTTP and stream retry count. Default: 3",
+        default=DEFAULT_RETRIES,
+        help=f"HTTP and stream retry count. Default: {DEFAULT_RETRIES}",
     )
     parser.add_argument(
         "--chunk-size",

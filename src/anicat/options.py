@@ -3,7 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .downloader import DEFAULT_CHUNK_SIZE
+from .constants import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_CONCURRENCY,
+    DEFAULT_CONNECT_TIMEOUT,
+    DEFAULT_READ_TIMEOUT,
+    DEFAULT_RETRIES,
+)
 
 
 @dataclass(frozen=True)
@@ -11,9 +17,9 @@ class DownloadOptions:
     """Runtime options shared by CLI and service orchestration."""
 
     output_dir: Path
-    concurrency: int = 3
-    timeout: float = 30.0
-    retries: int = 3
+    concurrency: int = DEFAULT_CONCURRENCY
+    timeout: float = DEFAULT_READ_TIMEOUT
+    retries: int = DEFAULT_RETRIES
     chunk_size: int = DEFAULT_CHUNK_SIZE
     resume: bool = True
     overwrite: bool = False
@@ -47,4 +53,4 @@ class DownloadOptions:
     def request_timeout(self) -> tuple[float, float]:
         """Return connect/read timeout tuple used by requests."""
 
-        return (10.0, self.timeout)
+        return (DEFAULT_CONNECT_TIMEOUT, self.timeout)

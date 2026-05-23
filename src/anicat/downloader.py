@@ -9,12 +9,11 @@ from typing import Literal, Protocol
 
 import requests
 
+from .constants import DEFAULT_CHUNK_SIZE, DEFAULT_MAX_FILENAME_STEM_LENGTH
 from .errors import DownloadError
 from .models import DownloadProgressEvent, DownloadResult, Episode, VideoStreamResponse
 
-DEFAULT_CHUNK_SIZE = 512 * 1024
 INVALID_FILENAME_PATTERN = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
-MAX_FILENAME_STEM_LENGTH = 180
 WINDOWS_RESERVED_NAMES = {
     # Avoid names that are invalid on Windows even when they look like normal stems.
     "CON",
@@ -58,7 +57,7 @@ def sanitize_filename(
     value: str,
     *,
     fallback: str = "episode",
-    max_length: int = MAX_FILENAME_STEM_LENGTH,
+    max_length: int = DEFAULT_MAX_FILENAME_STEM_LENGTH,
 ) -> str:
     """Return a cross-platform safe filename stem for an episode title."""
 

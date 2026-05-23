@@ -8,10 +8,16 @@ from typing import Any, cast
 
 import requests
 
+from .constants import (
+    API_URL,
+    DEFAULT_BACKOFF,
+    DEFAULT_CONNECT_TIMEOUT,
+    DEFAULT_READ_TIMEOUT,
+    DEFAULT_RETRIES,
+    RETRY_STATUS_CODES,
+)
 from .errors import FetchError
 from .models import VideoStreamResponse
-
-API_URL = "https://v.anime1.me/api"
 
 DEFAULT_HEADERS = {
     "Accept": "*/*",
@@ -26,7 +32,6 @@ DEFAULT_HEADERS = {
     ),
 }
 
-RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
 LOGGER = logging.getLogger(__name__)
 
 
@@ -37,9 +42,9 @@ class Anime1Client:
         self,
         *,
         session: requests.Session | None = None,
-        timeout: float | tuple[float, float] = (10.0, 30.0),
-        retries: int = 3,
-        backoff: float = 0.5,
+        timeout: float | tuple[float, float] = (DEFAULT_CONNECT_TIMEOUT, DEFAULT_READ_TIMEOUT),
+        retries: int = DEFAULT_RETRIES,
+        backoff: float = DEFAULT_BACKOFF,
         headers: Mapping[str, str] | None = None,
     ) -> None:
         self.session = session or requests.Session()
