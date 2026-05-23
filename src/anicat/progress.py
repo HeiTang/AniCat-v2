@@ -78,6 +78,10 @@ def rich_download_progress(total_jobs: int) -> Iterator[ProgressCallbacks]:
                         completed=event.bytes_completed,
                     )
 
+                if event.phase == "reset":
+                    # Reset only affects the current file bar; cumulative transfer never rewinds.
+                    return
+
                 if event.bytes_delta:
                     progress.update(overall_task, advance=event.bytes_delta)
 

@@ -64,10 +64,14 @@ class JobReport:
 
 @dataclass(frozen=True)
 class DownloadProgressEvent:
-    """Byte-level progress event emitted by the downloader."""
+    """Byte-level progress event emitted by the downloader.
+
+    The reset phase means previously resumed bytes were discarded because the
+    upstream server ignored a Range request and forced a full restart.
+    """
 
     episode: Episode
-    phase: Literal["started", "advanced"]
+    phase: Literal["started", "advanced", "reset"]
     bytes_delta: int
     bytes_completed: int
     total_bytes: int | None = None

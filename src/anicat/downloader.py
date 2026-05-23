@@ -245,8 +245,8 @@ def _download_stream_attempt(
             _emit_progress(
                 progress,
                 episode,
-                phase="advanced",
-                bytes_delta=-resume_from,
+                phase="reset",
+                bytes_delta=0,
                 bytes_completed=0,
                 total_bytes=None,
             )
@@ -456,7 +456,7 @@ def _emit_progress(
     progress: ProgressCallback | None,
     episode: Episode,
     *,
-    phase: Literal["started", "advanced"],
+    phase: Literal["started", "advanced", "reset"],
     bytes_delta: int,
     bytes_completed: int,
     total_bytes: int | None,

@@ -161,6 +161,46 @@ class DownloaderTests(unittest.TestCase):
             self.assertEqual(result.path.read_bytes(), b"abcdef")
             self.assertEqual(client.calls, [{"Range": "bytes=3-"}])
 
+    def test_download_emits_reset_progress_when_server_ignores_range(self):
+        progress: list[tuple[str, int, int, int | None]] = []
+        response = FakeResponse(b"abcdef", headers={"content-length": "6"})
+        client = FakeClient(response)
+        episode = Episode(
+            page_url="https://anime1.me/1",
+            title="Demo",
+            stream_url="https://cdn.example/demo.mp4",
+            cookies={},
+        )
+
+        with TemporaryDirectory() as directory:
+            part_path = Path(directory) / "Demo.mp4.part"
+            part_path.write_bytes(b"abc")
+
+            download_episode(
+                client,
+                episode,
+                Path(directory),
+                chunk_size=3,
+                progress=lambda event: progress.append(
+                    (
+                        event.phase,
+                        event.bytes_delta,
+                        event.bytes_completed,
+                        event.total_bytes,
+                    )
+                ),
+            )
+
+            self.assertEqual(
+                progress,
+                [
+                    ("reset", 0, 0, None),
+                    ("started", 0, 0, 6),
+                    ("advanced", 3, 3, 6),
+                    ("advanced", 3, 6, 6),
+                ],
+            )
+
     def test_download_retries_interrupted_stream_from_partial_size(self):
         first_response = BrokenResponse(
             b"abc",
