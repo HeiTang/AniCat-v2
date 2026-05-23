@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock, local
 from typing import Protocol
 
 from .client import Anime1Client
@@ -22,6 +23,12 @@ class AniCatClient(EpisodeSource, VideoSource, Protocol):
     """Combined client protocol required by extraction and downloading."""
 
     ...
+
+
+class WorkerClientState(local):
+    """Thread-local storage for one reusable client per worker thread."""
+
+    client: AniCatClient | None = None
 
 
 class AniCatService:
@@ -75,19 +82,45 @@ class AniCatService:
             self.options.worker_count,
         )
         reports: list[JobReport] = []
+        worker_clients: list[AniCatClient] = []
+        worker_clients_lock = Lock()
+        worker_state = WorkerClientState()
 
-        with ThreadPoolExecutor(max_workers=self.options.worker_count) as executor:
-            # Each worker owns its HTTP session to avoid shared cookie/header mutation.
-            futures = {
-                executor.submit(self.download_one, url, on_progress=on_progress): url
-                for url in episode_urls
-            }
+        def worker_client() -> AniCatClient:
+            """Return the current worker thread client, creating it on first use."""
 
-            for future in as_completed(futures):
-                report = future.result()
-                reports.append(report)
-                if on_done:
-                    on_done(report)
+            client = worker_state.client
+            if client is None:
+                client = self.client_factory()
+                worker_state.client = client
+                with worker_clients_lock:
+                    worker_clients.append(client)
+            return client
+
+        def download_with_worker_client(url: str) -> JobReport:
+            """Download one URL using the session owned by the current worker thread."""
+
+            return self._download_one_with_client(
+                worker_client(),
+                url,
+                on_progress=on_progress,
+            )
+
+        try:
+            with ThreadPoolExecutor(max_workers=self.options.worker_count) as executor:
+                # Each worker owns one reusable HTTP session across its assigned jobs.
+                futures = {
+                    executor.submit(download_with_worker_client, url): url for url in episode_urls
+                }
+
+                for future in as_completed(futures):
+                    report = future.result()
+                    reports.append(report)
+                    if on_done:
+                        on_done(report)
+        finally:
+            for client in worker_clients:
+                close_client(client)
 
         return reports
 
@@ -99,8 +132,23 @@ class AniCatService:
     ) -> JobReport:
         """Resolve and download one episode URL, isolating recoverable failures."""
 
-        LOGGER.info("Resolving episode: %s", url)
         client = self.client_factory()
+
+        try:
+            return self._download_one_with_client(client, url, on_progress=on_progress)
+        finally:
+            close_client(client)
+
+    def _download_one_with_client(
+        self,
+        client: AniCatClient,
+        url: str,
+        *,
+        on_progress: DownloadProgress | None = None,
+    ) -> JobReport:
+        """Resolve and download one episode URL using an already-owned client."""
+
+        LOGGER.info("Resolving episode: %s", url)
         extractor = Anime1Extractor(client)
 
         try:
@@ -118,13 +166,11 @@ class AniCatService:
             LOGGER.info("%s episode: %s", result.status.title(), result.episode.title)
             return JobReport(url=url, result=result)
         except AniCatError as error:
-            LOGGER.info("Episode failed with recoverable error: %s", error)
+            LOGGER.warning("Episode failed with recoverable error: %s", error)
             return JobReport(url=url, error=str(error))
         except OSError as error:
-            LOGGER.info("Episode failed with file system error: %s", error)
+            LOGGER.warning("Episode failed with file system error: %s", error)
             return JobReport(url=url, error=str(error))
-        finally:
-            close_client(client)
 
     def _default_client(self) -> AniCatClient:
         """Create the default HTTP client for one worker."""
