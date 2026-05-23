@@ -7,8 +7,18 @@ from anicat.urls import dedupe, ensure_supported_url, is_episode_url, is_season_
 class UrlTests(unittest.TestCase):
     def test_split_urls_accepts_commas_and_spaces(self):
         self.assertEqual(
-            split_urls([" https://anime1.me/1,https://anime1.me/2 ", "https://anime1.me/3"]),
-            ["https://anime1.me/1", "https://anime1.me/2", "https://anime1.me/3"],
+            split_urls(
+                [
+                    " https://anime1.me/1,https://anime1.me/2 ",
+                    "https://anime1.me/3\nhttps://anime1.me/4",
+                ]
+            ),
+            [
+                "https://anime1.me/1",
+                "https://anime1.me/2",
+                "https://anime1.me/3",
+                "https://anime1.me/4",
+            ],
         )
 
     def test_classifies_supported_urls(self):
@@ -18,6 +28,10 @@ class UrlTests(unittest.TestCase):
     def test_rejects_unsupported_urls(self):
         with self.assertRaises(AniCatError):
             ensure_supported_url("https://example.com/15651")
+
+    def test_rejects_episode_url_with_trailing_garbage(self):
+        self.assertFalse(is_episode_url("https://anime1.me/15651abc"))
+        self.assertFalse(is_episode_url("https://anime1.me/15651/extra"))
 
     def test_dedupe_keeps_order(self):
         self.assertEqual(dedupe(["a", "b", "a", "c"]), ["a", "b", "c"])

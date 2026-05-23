@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from http.cookies import SimpleCookie
+from http.cookies import CookieError, SimpleCookie
 from typing import Any, Protocol
 from urllib.parse import urljoin
 
@@ -104,7 +104,7 @@ def extract_access_cookies(response: requests.Response) -> dict[str, str]:
     parsed = SimpleCookie()
     try:
         parsed.load(response.headers.get("set-cookie", ""))
-    except Exception:
+    except CookieError:
         parsed = SimpleCookie()
 
     for name in ACCESS_COOKIE_NAMES:

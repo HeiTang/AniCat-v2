@@ -60,6 +60,12 @@ class VideoResponse:
 
 
 class GoodClient:
+    instances: ClassVar[list["GoodClient"]] = []
+
+    def __init__(self) -> None:
+        self.closed = False
+        self.instances.append(self)
+
     def post_page(self, url: str) -> str:
         return """
         <h2 class="entry-title">Demo</h2>
@@ -77,6 +83,9 @@ class GoodClient:
         headers: Mapping[str, str] | None = None,
     ) -> VideoStreamResponse:
         return VideoResponse()
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class ServiceTests(unittest.TestCase):
@@ -96,13 +105,14 @@ class ServiceTests(unittest.TestCase):
 
     def test_download_many_reports_chunk_progress(self):
         progress: list[tuple[str, int, int, int | None]] = []
+        GoodClient.instances.clear()
 
         with TemporaryDirectory() as directory:
             service = AniCatService(
                 DownloadOptions(
                     output_dir=Path(directory),
                     concurrency=1,
-                    chunk_size=2,
+                    chunk_size=1024,
                 ),
                 client_factory=GoodClient,
             )
@@ -132,6 +142,22 @@ class ServiceTests(unittest.TestCase):
             result = reports[0].result
             assert result is not None
             self.assertEqual(result.path.read_bytes(), VideoResponse.content)
+            self.assertEqual(len(GoodClient.instances), 1)
+            self.assertTrue(GoodClient.instances[0].closed)
+
+    def test_collect_episode_urls_closes_client(self):
+        GoodClient.instances.clear()
+
+        service = AniCatService(
+            DownloadOptions(output_dir=Path("unused")),
+            client_factory=GoodClient,
+        )
+
+        urls = service.collect_episode_urls(["https://anime1.me/1"])
+
+        self.assertEqual(urls, ["https://anime1.me/1"])
+        self.assertEqual(len(GoodClient.instances), 1)
+        self.assertTrue(GoodClient.instances[0].closed)
 
 
 if __name__ == "__main__":

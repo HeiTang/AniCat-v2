@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Protocol
 
-import requests
-
 from .client import Anime1Client
-from .downloader import download_episode
+from .downloader import VideoSource, download_episode
 from .errors import AniCatError
-from .extractor import Anime1Extractor
-from .models import DownloadProgressEvent, JobReport, VideoStreamResponse
+from .extractor import Anime1Extractor, EpisodeSource
+from .models import DownloadProgressEvent, JobReport
 from .options import DownloadOptions
 from .urls import dedupe, ensure_supported_url, is_episode_url, is_season_url
 
@@ -18,29 +16,10 @@ DownloadProgress = Callable[[DownloadProgressEvent], None]
 JobDone = Callable[["JobReport"], None]
 
 
-class AniCatClient(Protocol):
+class AniCatClient(EpisodeSource, VideoSource, Protocol):
     """Combined client protocol required by extraction and downloading."""
 
-    def post_page(self, url: str) -> str:
-        """Return raw HTML for an Anime1 page."""
-
-        ...
-
-    def post_api(self, data_apireq: str) -> requests.Response:
-        """Return raw response for an Anime1 episode API payload."""
-
-        ...
-
-    def stream_video(
-        self,
-        url: str,
-        *,
-        cookies: Mapping[str, str],
-        headers: Mapping[str, str] | None = None,
-    ) -> VideoStreamResponse:
-        """Return a streaming video response for a CDN URL."""
-
-        ...
+    ...
 
 
 class AniCatService:
@@ -59,17 +38,20 @@ class AniCatService:
         """Expand supported input URLs into a de-duplicated episode URL list."""
 
         client = self.client_factory()
-        extractor = Anime1Extractor(client)
-        episode_urls: list[str] = []
+        try:
+            extractor = Anime1Extractor(client)
+            episode_urls: list[str] = []
 
-        for url in input_urls:
-            ensure_supported_url(url)
-            if is_season_url(url):
-                episode_urls.extend(extractor.season_episode_urls(url))
-            elif is_episode_url(url):
-                episode_urls.append(url)
+            for url in input_urls:
+                ensure_supported_url(url)
+                if is_season_url(url):
+                    episode_urls.extend(extractor.season_episode_urls(url))
+                elif is_episode_url(url):
+                    episode_urls.append(url)
 
-        return dedupe(episode_urls)
+            return dedupe(episode_urls)
+        finally:
+            close_client(client)
 
     def download_many(
         self,
@@ -124,6 +106,8 @@ class AniCatService:
             return JobReport(url=url, error=str(error))
         except OSError as error:
             return JobReport(url=url, error=str(error))
+        finally:
+            close_client(client)
 
     def _default_client(self) -> AniCatClient:
         """Create the default HTTP client for one worker."""
@@ -132,3 +116,11 @@ class AniCatService:
             timeout=self.options.request_timeout,
             retries=self.options.retries,
         )
+
+
+def close_client(client: object) -> None:
+    """Close clients that expose a close method without requiring it in tests."""
+
+    close = getattr(client, "close", None)
+    if callable(close):
+        close()

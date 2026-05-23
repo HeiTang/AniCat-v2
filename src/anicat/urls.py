@@ -5,14 +5,18 @@ from collections.abc import Iterable, Sequence
 
 from .errors import AniCatError
 
-SEASON_URL_PATTERN = re.compile(r"^https?://(?:www\.)?anime1\.me/category/.+", re.I)
-EPISODE_URL_PATTERN = re.compile(r"^https?://(?:www\.)?anime1\.me/\d+", re.I)
+SEASON_URL_PATTERN = re.compile(r"^https?://(?:www\.)?anime1\.me/category/[^\s]+$", re.I)
+EPISODE_URL_PATTERN = re.compile(
+    r"^https?://(?:www\.)?anime1\.me/\d+/?(?:[?#][^\s]*)?$",
+    re.I,
+)
+URL_SEPARATOR_PATTERN = re.compile(r"[,\s]+")
 
 
 def split_urls(values: Sequence[str]) -> list[str]:
-    """Split CLI URL arguments that may contain comma-separated values."""
+    """Split CLI URL arguments that may contain comma or whitespace separators."""
 
-    return [item.strip() for value in values for item in value.split(",") if item.strip()]
+    return [item for value in values for item in URL_SEPARATOR_PATTERN.split(value.strip()) if item]
 
 
 def is_season_url(url: str) -> bool:

@@ -4,25 +4,21 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from threading import Lock
-from typing import Any
+
+from rich.progress import (
+    BarColumn,
+    DownloadColumn,
+    Progress,
+    SpinnerColumn,
+    TaskID,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+    TransferSpeedColumn,
+)
 
 from .models import DownloadProgressEvent, JobReport
-
-try:
-    from rich.progress import (
-        BarColumn,
-        DownloadColumn,
-        Progress,
-        SpinnerColumn,
-        TaskProgressColumn,
-        TextColumn,
-        TimeElapsedColumn,
-        TimeRemainingColumn,
-        TransferSpeedColumn,
-    )
-except ModuleNotFoundError:
-    # Tests and basic CLI help should still work before optional dependencies are installed.
-    Progress = None
 
 
 @dataclass(frozen=True)
@@ -37,13 +33,9 @@ class ProgressCallbacks:
 def rich_download_progress(total_jobs: int) -> Iterator[ProgressCallbacks]:
     """Render overall and active per-file progress bars with Rich."""
 
-    if Progress is None:
-        yield ProgressCallbacks(on_progress=noop_progress, on_done=noop_done)
-        return
-
     # Worker threads report progress concurrently; Rich updates must stay serialized.
     lock = Lock()
-    active_tasks: dict[str, Any] = {}
+    active_tasks: dict[str, TaskID] = {}
     completed_jobs = 0
     failed_jobs = 0
     skipped_jobs = 0

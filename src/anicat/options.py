@@ -19,17 +19,29 @@ class DownloadOptions:
     overwrite: bool = False
     progress: bool = True
 
+    def __post_init__(self) -> None:
+        """Validate runtime options early instead of silently coercing bad values."""
+
+        if self.concurrency < 1:
+            raise ValueError("concurrency must be greater than or equal to 1")
+        if self.timeout <= 0:
+            raise ValueError("timeout must be greater than 0")
+        if self.retries < 0:
+            raise ValueError("retries must be greater than or equal to 0")
+        if self.chunk_size <= 0:
+            raise ValueError("chunk_size must be greater than 0")
+
     @property
     def worker_count(self) -> int:
         """Return a safe worker count for ThreadPoolExecutor."""
 
-        return max(1, self.concurrency)
+        return self.concurrency
 
     @property
     def safe_chunk_size(self) -> int:
-        """Return a minimum chunk size to avoid inefficient tiny reads."""
+        """Return the validated chunk size used by streaming downloads."""
 
-        return max(1024, self.chunk_size)
+        return self.chunk_size
 
     @property
     def request_timeout(self) -> tuple[float, float]:

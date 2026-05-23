@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Mapping
+from types import TracebackType
 from typing import Any, cast
 
 import requests
@@ -45,6 +46,26 @@ class Anime1Client:
         self.backoff = max(0.0, backoff)
         self.headers = {**DEFAULT_HEADERS, **(headers or {})}
 
+    def __enter__(self) -> Anime1Client:
+        """Return this client so callers can manage it with a context manager."""
+
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close the underlying HTTP session when leaving a context manager."""
+
+        self.close()
+
+    def close(self) -> None:
+        """Close the underlying HTTP session and release pooled connections."""
+
+        self.session.close()
+
     def post_page(self, url: str) -> str:
         """Fetch an Anime1 HTML page using the upstream-expected POST method."""
 
@@ -83,7 +104,6 @@ class Anime1Client:
                 headers=request_headers,
                 cookies=dict(cookies),
                 stream=True,
-                timeout=(10.0, 60.0),
             ),
         )
 
@@ -107,7 +127,7 @@ class Anime1Client:
                     method,
                     url,
                     headers=request_headers,
-                    timeout=timeout or self.timeout,
+                    timeout=timeout if timeout is not None else self.timeout,
                     **kwargs,
                 )
                 # Retry only transient upstream/server throttling errors.

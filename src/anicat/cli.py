@@ -25,7 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "urls",
         nargs="*",
-        help="Anime1 episode/category URLs. Comma-separated values are accepted.",
+        help="Anime1 episode/category URLs. Whitespace and commas are accepted.",
     )
     parser.add_argument(
         "-o",
@@ -82,15 +82,27 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     parser = build_parser()
     args = parser.parse_args(argv)
-    options = options_from_args(args)
-    service = AniCatService(options)
+    try:
+        options = options_from_args(args)
+    except ValueError as error:
+        print(f"argument error: {error}", file=sys.stderr)
+        return 2
 
     input_urls = split_urls(args.urls)
     if not input_urls:
-        input_urls = split_urls([input("? Anime1 URL：")])
+        if not sys.stdin.isatty():
+            print("No URL provided.", file=sys.stderr)
+            return 2
+        try:
+            input_urls = split_urls([input("? Anime1 URL：")])
+        except EOFError:
+            print("No URL provided.", file=sys.stderr)
+            return 2
     if not input_urls:
         print("No URL provided.", file=sys.stderr)
         return 2
+
+    service = AniCatService(options)
 
     try:
         episode_urls = service.collect_episode_urls(input_urls)
