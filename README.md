@@ -134,6 +134,14 @@ poetry run python -m compileall src/anicat tests
 poetry check
 ```
 
+安裝 pre-commit hook：
+
+```bash
+poetry install --with dev
+poetry run pre-commit install
+poetry run pre-commit run --all-files
+```
+
 真實 Anime1 smoke test 預設不跑，避免 CI 依賴外部網站；需要時手動開啟：
 
 ```bash
@@ -147,4 +155,5 @@ GitHub Actions 會在 push / pull request 時執行格式檢查、lint、型別�
 
 - 單元測試不依賴 Anime1 網路狀態。
 - 真實 Anime1 smoke test 只測解析與 Range contract，不下載完整影片。
+- 版本紀錄見 `CHANGELOG.md`。
 - 若 Anime1 HTML/API 結構改變，優先修 `extractor` 與對應 fixture tests。
