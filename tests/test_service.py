@@ -145,6 +145,30 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(len(GoodClient.instances), 1)
             self.assertTrue(GoodClient.instances[0].closed)
 
+    def test_download_many_reuses_one_client_per_worker_thread(self):
+        GoodClient.instances.clear()
+
+        with TemporaryDirectory() as directory:
+            service = AniCatService(
+                DownloadOptions(
+                    output_dir=Path(directory),
+                    concurrency=1,
+                    chunk_size=1024,
+                ),
+                client_factory=GoodClient,
+            )
+
+            reports = service.download_many(
+                [
+                    "https://anime1.me/1",
+                    "https://anime1.me/2",
+                ]
+            )
+
+            self.assertEqual(len(reports), 2)
+            self.assertEqual(len(GoodClient.instances), 1)
+            self.assertTrue(GoodClient.instances[0].closed)
+
     def test_collect_episode_urls_closes_client(self):
         GoodClient.instances.clear()
 
