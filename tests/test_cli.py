@@ -4,7 +4,7 @@ from io import StringIO
 from unittest.mock import patch
 
 from anicat import __version__
-from anicat.cli import EXIT_FAILURE, EXIT_OK, EXIT_USAGE, build_parser, main
+from anicat.cli import EXIT_FAILURE, EXIT_OK, EXIT_USAGE, build_parser, main, options_from_args
 
 
 class CliTests(unittest.TestCase):
@@ -17,6 +17,22 @@ class CliTests(unittest.TestCase):
 
     def test_invalid_options_return_argument_error(self):
         self.assertEqual(main(["--timeout", "0", "https://anime1.me/1"]), EXIT_USAGE)
+
+    def test_invalid_connect_timeout_returns_argument_error(self):
+        self.assertEqual(main(["--connect-timeout", "0", "https://anime1.me/1"]), EXIT_USAGE)
+
+    def test_timeout_flags_build_request_timeout_tuple(self):
+        args = build_parser().parse_args(
+            [
+                "--connect-timeout",
+                "2",
+                "--timeout",
+                "9",
+                "https://anime1.me/1",
+            ]
+        )
+
+        self.assertEqual(options_from_args(args).request_timeout, (2, 9))
 
     def test_verbose_flag_counts_diagnostic_level(self):
         args = build_parser().parse_args(["-vv", "https://anime1.me/1"])

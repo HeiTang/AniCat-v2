@@ -66,6 +66,7 @@ poetry run anicat --help
 | `-o`, `--output DIR` | 指定下載目錄 | `./Anime1_Download` |
 | `-c`, `--concurrency N` | 併發下載數 | `3` |
 | `--timeout SECONDS` | HTTP 讀取逾時秒數 | `30` |
+| `--connect-timeout SECONDS` | HTTP 連線逾時秒數 | `10` |
 | `--retries N` | HTTP 與串流中斷重試次數 | `3` |
 | `--chunk-size BYTES` | 下載分塊大小 | `524288` |
 | `--overwrite` | 覆寫已完成的同名檔案 | `False` |

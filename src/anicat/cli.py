@@ -10,6 +10,7 @@ from . import __version__
 from .constants import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_CONCURRENCY,
+    DEFAULT_CONNECT_TIMEOUT,
     DEFAULT_OUTPUT_DIR_NAME,
     DEFAULT_READ_TIMEOUT,
     DEFAULT_RETRIES,
@@ -65,6 +66,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=DEFAULT_READ_TIMEOUT,
         help=f"HTTP read timeout in seconds. Default: {DEFAULT_READ_TIMEOUT:g}",
+    )
+    parser.add_argument(
+        "--connect-timeout",
+        type=float,
+        default=DEFAULT_CONNECT_TIMEOUT,
+        help=f"HTTP connect timeout in seconds. Default: {DEFAULT_CONNECT_TIMEOUT:g}",
     )
     parser.add_argument(
         "--retries",
@@ -187,6 +194,7 @@ def options_from_args(args: argparse.Namespace) -> DownloadOptions:
         output_dir=args.output,
         concurrency=args.concurrency,
         timeout=args.timeout,
+        connect_timeout=args.connect_timeout,
         retries=args.retries,
         chunk_size=args.chunk_size,
         resume=not args.no_resume,

@@ -11,6 +11,8 @@ class DownloadOptionsTests(unittest.TestCase):
             {"concurrency": 0},
             {"timeout": 0},
             {"timeout": -1},
+            {"connect_timeout": 0},
+            {"connect_timeout": -1},
             {"retries": -1},
             {"chunk_size": 0},
         ]
@@ -21,9 +23,16 @@ class DownloadOptionsTests(unittest.TestCase):
                     DownloadOptions(output_dir=Path("unused"), **kwargs)
 
     def test_validated_properties_do_not_coerce_values(self):
-        options = DownloadOptions(output_dir=Path("unused"), concurrency=2, chunk_size=2)
+        options = DownloadOptions(
+            output_dir=Path("unused"),
+            concurrency=2,
+            connect_timeout=3,
+            timeout=4,
+            chunk_size=2,
+        )
 
         self.assertEqual(options.worker_count, 2)
+        self.assertEqual(options.request_timeout, (3, 4))
         self.assertEqual(options.safe_chunk_size, 2)
 
 

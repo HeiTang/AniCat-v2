@@ -5,6 +5,7 @@ from anicat.cli import build_parser
 from anicat.constants import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_CONCURRENCY,
+    DEFAULT_CONNECT_TIMEOUT,
     DEFAULT_OUTPUT_DIR_NAME,
     DEFAULT_READ_TIMEOUT,
     DEFAULT_RETRIES,
@@ -19,6 +20,7 @@ class ConstantsTests(unittest.TestCase):
         self.assertEqual(args.output.name, DEFAULT_OUTPUT_DIR_NAME)
         self.assertEqual(args.concurrency, DEFAULT_CONCURRENCY)
         self.assertEqual(args.timeout, DEFAULT_READ_TIMEOUT)
+        self.assertEqual(args.connect_timeout, DEFAULT_CONNECT_TIMEOUT)
         self.assertEqual(args.retries, DEFAULT_RETRIES)
         self.assertEqual(args.chunk_size, DEFAULT_CHUNK_SIZE)
 
@@ -27,6 +29,7 @@ class ConstantsTests(unittest.TestCase):
 
         self.assertEqual(options.concurrency, DEFAULT_CONCURRENCY)
         self.assertEqual(options.timeout, DEFAULT_READ_TIMEOUT)
+        self.assertEqual(options.connect_timeout, DEFAULT_CONNECT_TIMEOUT)
         self.assertEqual(options.retries, DEFAULT_RETRIES)
         self.assertEqual(options.chunk_size, DEFAULT_CHUNK_SIZE)
 

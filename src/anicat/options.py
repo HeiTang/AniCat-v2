@@ -19,6 +19,7 @@ class DownloadOptions:
     output_dir: Path
     concurrency: int = DEFAULT_CONCURRENCY
     timeout: float = DEFAULT_READ_TIMEOUT
+    connect_timeout: float = DEFAULT_CONNECT_TIMEOUT
     retries: int = DEFAULT_RETRIES
     chunk_size: int = DEFAULT_CHUNK_SIZE
     resume: bool = True
@@ -32,6 +33,8 @@ class DownloadOptions:
             raise ValueError("concurrency must be greater than or equal to 1")
         if self.timeout <= 0:
             raise ValueError("timeout must be greater than 0")
+        if self.connect_timeout <= 0:
+            raise ValueError("connect_timeout must be greater than 0")
         if self.retries < 0:
             raise ValueError("retries must be greater than or equal to 0")
         if self.chunk_size <= 0:
@@ -53,4 +56,4 @@ class DownloadOptions:
     def request_timeout(self) -> tuple[float, float]:
         """Return connect/read timeout tuple used by requests."""
 
-        return (DEFAULT_CONNECT_TIMEOUT, self.timeout)
+        return (self.connect_timeout, self.timeout)
