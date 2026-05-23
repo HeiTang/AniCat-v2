@@ -107,6 +107,25 @@ class DownloaderTests(unittest.TestCase):
             self.assertEqual(result.path.read_bytes(), b"abcdef")
             self.assertEqual(client.calls, [{"Range": "bytes=3-"}])
 
+    def test_download_restarts_when_server_ignores_range(self):
+        response = FakeResponse(b"abcdef", headers={"content-length": "6"})
+        client = FakeClient(response)
+        episode = Episode(
+            page_url="https://anime1.me/1",
+            title="Demo",
+            stream_url="https://cdn.example/demo.mp4",
+            cookies={},
+        )
+
+        with TemporaryDirectory() as directory:
+            part_path = Path(directory) / "Demo.mp4.part"
+            part_path.write_bytes(b"abc")
+
+            result = download_episode(client, episode, Path(directory), chunk_size=2)
+
+            self.assertEqual(result.path.read_bytes(), b"abcdef")
+            self.assertEqual(client.calls, [{"Range": "bytes=3-"}])
+
     def test_incomplete_download_keeps_part_file(self):
         response = FakeResponse(b"abc", headers={"content-length": "5"})
         client = FakeClient(response)
