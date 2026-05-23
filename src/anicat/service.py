@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Protocol
@@ -14,6 +15,7 @@ from .urls import dedupe, ensure_supported_url, is_episode_url, is_season_url
 
 DownloadProgress = Callable[[DownloadProgressEvent], None]
 JobDone = Callable[["JobReport"], None]
+LOGGER = logging.getLogger(__name__)
 
 
 class AniCatClient(EpisodeSource, VideoSource, Protocol):
@@ -37,6 +39,7 @@ class AniCatService:
     def collect_episode_urls(self, input_urls: list[str]) -> list[str]:
         """Expand supported input URLs into a de-duplicated episode URL list."""
 
+        LOGGER.info("Collecting episodes from %d input URL(s)", len(input_urls))
         client = self.client_factory()
         try:
             extractor = Anime1Extractor(client)
@@ -45,11 +48,15 @@ class AniCatService:
             for url in input_urls:
                 ensure_supported_url(url)
                 if is_season_url(url):
+                    LOGGER.debug("Expanding season URL: %s", url)
                     episode_urls.extend(extractor.season_episode_urls(url))
                 elif is_episode_url(url):
+                    LOGGER.debug("Adding episode URL: %s", url)
                     episode_urls.append(url)
 
-            return dedupe(episode_urls)
+            deduped_urls = dedupe(episode_urls)
+            LOGGER.info("Collected %d episode URL(s)", len(deduped_urls))
+            return deduped_urls
         finally:
             close_client(client)
 
@@ -62,6 +69,11 @@ class AniCatService:
     ) -> list[JobReport]:
         """Download multiple episode URLs concurrently and return job reports."""
 
+        LOGGER.info(
+            "Downloading %d episode(s) with %d worker(s)",
+            len(episode_urls),
+            self.options.worker_count,
+        )
         reports: list[JobReport] = []
 
         with ThreadPoolExecutor(max_workers=self.options.worker_count) as executor:
@@ -87,6 +99,7 @@ class AniCatService:
     ) -> JobReport:
         """Resolve and download one episode URL, isolating recoverable failures."""
 
+        LOGGER.info("Resolving episode: %s", url)
         client = self.client_factory()
         extractor = Anime1Extractor(client)
 
@@ -101,10 +114,13 @@ class AniCatService:
                 overwrite=self.options.overwrite,
                 progress=on_progress,
             )
+            LOGGER.info("%s episode: %s", result.status.title(), result.episode.title)
             return JobReport(url=url, result=result)
         except AniCatError as error:
+            LOGGER.info("Episode failed with recoverable error: %s", error)
             return JobReport(url=url, error=str(error))
         except OSError as error:
+            LOGGER.info("Episode failed with file system error: %s", error)
             return JobReport(url=url, error=str(error))
         finally:
             close_client(client)

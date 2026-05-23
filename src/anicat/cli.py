@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .downloader import DEFAULT_CHUNK_SIZE
 from .errors import AniCatError
+from .logging_config import configure_logging
 from .models import JobReport
 from .options import DownloadOptions
 from .progress import rich_download_progress
@@ -74,6 +75,19 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable progress bar.",
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="Show diagnostic logs. Use -vv for HTTP-level debug details.",
+    )
+    parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Suppress diagnostic logs except errors. Summary output is unchanged.",
+    )
     return parser
 
 
@@ -82,6 +96,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     parser = build_parser()
     args = parser.parse_args(argv)
+    configure_logging(verbose=args.verbose, quiet=args.quiet)
     try:
         options = options_from_args(args)
     except ValueError as error:

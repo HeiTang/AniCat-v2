@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from anicat.cli import main
+from anicat.cli import build_parser, main
 
 
 class CliTests(unittest.TestCase):
@@ -14,6 +14,12 @@ class CliTests(unittest.TestCase):
 
     def test_invalid_options_return_argument_error(self):
         self.assertEqual(main(["--timeout", "0", "https://anime1.me/1"]), 2)
+
+    def test_logging_flags_parse(self):
+        args = build_parser().parse_args(["-vv", "--quiet", "https://anime1.me/1"])
+
+        self.assertEqual(args.verbose, 2)
+        self.assertTrue(args.quiet)
 
 
 if __name__ == "__main__":

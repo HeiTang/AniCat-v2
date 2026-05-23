@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Mapping
 from types import TracebackType
@@ -26,6 +27,7 @@ DEFAULT_HEADERS = {
 }
 
 RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
+LOGGER = logging.getLogger(__name__)
 
 
 class Anime1Client:
@@ -122,7 +124,15 @@ class Anime1Client:
         last_error: Exception | None = None
 
         for attempt in range(self.retries + 1):
+            attempt_number = attempt + 1
             try:
+                LOGGER.debug(
+                    "HTTP %s %s attempt %d/%d",
+                    method,
+                    url,
+                    attempt_number,
+                    self.retries + 1,
+                )
                 response = self.session.request(
                     method,
                     url,
@@ -133,16 +143,34 @@ class Anime1Client:
                 # Retry only transient upstream/server throttling errors.
                 if response.status_code in RETRY_STATUS_CODES and attempt < self.retries:
                     response.close()
+                    LOGGER.warning(
+                        "HTTP %s %s returned %d; retrying attempt %d/%d",
+                        method,
+                        url,
+                        response.status_code,
+                        attempt_number + 1,
+                        self.retries + 1,
+                    )
                     self._sleep(attempt)
                     continue
                 response.raise_for_status()
+                LOGGER.debug("HTTP %s %s completed with %d", method, url, response.status_code)
                 return response
             except requests.RequestException as error:
                 last_error = error
                 if attempt >= self.retries:
                     break
+                LOGGER.warning(
+                    "HTTP %s %s failed: %s; retrying attempt %d/%d",
+                    method,
+                    url,
+                    error,
+                    attempt_number + 1,
+                    self.retries + 1,
+                )
                 self._sleep(attempt)
 
+        LOGGER.debug("HTTP %s %s exhausted retries: %s", method, url, last_error)
         raise FetchError(f"{method} {url} failed: {last_error}") from last_error
 
     def _sleep(self, attempt: int) -> None:

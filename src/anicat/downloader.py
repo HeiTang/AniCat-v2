@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -23,6 +24,7 @@ WINDOWS_RESERVED_NAMES = {
 
 ProgressCallback = Callable[[DownloadProgressEvent], None]
 WriteMode = Literal["ab", "wb"]
+LOGGER = logging.getLogger(__name__)
 
 
 class VideoSource(Protocol):
@@ -123,6 +125,7 @@ def _skipped_result(
         return None
 
     existing_size = path.stat().st_size
+    LOGGER.info("Skipping existing file: %s", path)
     return DownloadResult(
         episode=episode,
         path=path,
@@ -142,15 +145,20 @@ def _prepare_partial_file(
     """Prepare existing output files and return the byte offset to resume from."""
 
     if overwrite:
+        LOGGER.debug("Discarding existing output before overwrite: %s", path)
         path.unlink(missing_ok=True)
         part_path.unlink(missing_ok=True)
         return 0
 
     if not resume:
+        LOGGER.debug("Discarding partial file because resume is disabled: %s", part_path)
         part_path.unlink(missing_ok=True)
         return 0
 
-    return part_path.stat().st_size if part_path.exists() else 0
+    resume_from = part_path.stat().st_size if part_path.exists() else 0
+    if resume_from:
+        LOGGER.info("Resuming partial file from byte %d: %s", resume_from, part_path)
+    return resume_from
 
 
 def _open_video_stream(
@@ -181,6 +189,7 @@ def _normalize_resume_state(
     """Reset a partial file when the server ignores a resume Range request."""
 
     if resume_from and response.status_code == 200:
+        LOGGER.warning("Server ignored Range request; restarting partial file: %s", part_path)
         part_path.unlink(missing_ok=True)
         return 0
     return resume_from
@@ -216,6 +225,7 @@ def _write_response_body(
     )
 
     with part_path.open(mode) as file:
+        LOGGER.debug("Writing response body to %s with mode=%s", part_path, mode)
         for chunk in response.iter_content(chunk_size=chunk_size):
             if not chunk:
                 continue
@@ -266,6 +276,12 @@ def _ensure_complete(
     """Raise when the downloaded byte count does not match response metadata."""
 
     if total_bytes is not None and written != total_bytes:
+        LOGGER.debug(
+            "Incomplete download detected for %s: %d/%d bytes",
+            episode.title,
+            written,
+            total_bytes,
+        )
         raise DownloadError(
             f"incomplete download for {episode.title}: {written}/{total_bytes} bytes"
         )
@@ -279,6 +295,7 @@ def _downloaded_result(
 ) -> DownloadResult:
     """Build the successful download result after atomic promotion."""
 
+    LOGGER.info("Downloaded file: %s", path)
     return DownloadResult(
         episode=episode,
         path=path,
