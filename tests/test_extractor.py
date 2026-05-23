@@ -39,6 +39,32 @@ class ExtractorTests(unittest.TestCase):
         with self.assertRaises(ParseError):
             parse_episode_page('<h2 class="entry-title">Demo</h2>')
 
+    def test_parse_episode_page_uses_first_video_with_api_request(self):
+        data_apireq, title = parse_episode_page(
+            """
+            <h2 class="entry-title">Demo</h2>
+            <video class="video-js"></video>
+            <video class="video-js" data-apireq="real-request"></video>
+            """
+        )
+
+        self.assertEqual(data_apireq, "real-request")
+        self.assertEqual(title, "Demo")
+
+    def test_parse_episode_page_warns_when_multiple_video_candidates_exist(self):
+        with self.assertLogs("anicat.extractor", level="WARNING") as logs:
+            data_apireq, title = parse_episode_page(
+                """
+                <h2 class="entry-title">Demo</h2>
+                <video class="video-js" data-apireq="first"></video>
+                <video class="video-js" data-apireq="second"></video>
+                """
+            )
+
+        self.assertEqual(data_apireq, "first")
+        self.assertEqual(title, "Demo")
+        self.assertIn("2 video candidates", logs.output[0])
+
     def test_parse_stream_url_accepts_dict_or_list_shape(self):
         self.assertEqual(
             parse_stream_url({"s": {"src": "//cdn.example/video.mp4"}}), "//cdn.example/video.mp4"

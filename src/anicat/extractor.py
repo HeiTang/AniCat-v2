@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from http.cookies import CookieError, SimpleCookie
 from typing import Any, Protocol
@@ -12,6 +13,7 @@ from .errors import ParseError
 from .models import Episode
 
 ACCESS_COOKIE_NAMES = ("e", "p", "h")
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -58,16 +60,30 @@ def parse_episode_page(html: str) -> tuple[str, str]:
     """Parse data-apireq and display title from an episode page."""
 
     soup = parse_html(html)
-    video = soup.select_one("video.video-js")
     title = soup.select_one("h2.entry-title")
 
-    data_apireq = video.get("data-apireq") if video else None
-    if not isinstance(data_apireq, str):
+    data_apireq = select_episode_api_request(soup)
+    if data_apireq is None:
         raise ParseError("episode page is missing video data-apireq")
     if not title:
         raise ParseError("episode page is missing title")
 
     return data_apireq, title.get_text(" ", strip=True)
+
+
+def select_episode_api_request(soup: BeautifulSoup) -> str | None:
+    """Return the first valid video data-apireq from an episode page."""
+
+    candidates = [
+        data_apireq
+        for video in soup.select("video.video-js")
+        if isinstance(data_apireq := video.get("data-apireq"), str) and data_apireq
+    ]
+    if len(candidates) > 1:
+        LOGGER.warning(
+            "episode page contains %d video candidates; using the first", len(candidates)
+        )
+    return candidates[0] if candidates else None
 
 
 def parse_html(html: str) -> BeautifulSoup:
