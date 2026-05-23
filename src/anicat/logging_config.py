@@ -6,7 +6,7 @@ from rich.logging import RichHandler
 
 
 def configure_logging(*, verbose: int, quiet: bool) -> None:
-    """Configure CLI diagnostic logging without changing normal result output."""
+    """Configure CLI diagnostic logging and intentionally replace root handlers."""
 
     logging.basicConfig(
         level=log_level(verbose=verbose, quiet=quiet),

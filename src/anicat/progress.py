@@ -112,18 +112,6 @@ def rich_download_progress(total_jobs: int) -> Iterator[ProgressCallbacks]:
         yield ProgressCallbacks(on_progress=on_progress, on_done=on_done)
 
 
-def noop_progress(event: DownloadProgressEvent) -> None:
-    """Ignore progress events when progress rendering is unavailable or disabled."""
-
-    return None
-
-
-def noop_done(report: JobReport) -> None:
-    """Ignore job completion events when progress rendering is unavailable or disabled."""
-
-    return None
-
-
 def overall_description(
     completed_jobs: int,
     total_jobs: int,

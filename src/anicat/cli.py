@@ -6,6 +6,7 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
+from . import __version__
 from .constants import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_CONCURRENCY,
@@ -92,18 +93,26 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable progress bar.",
     )
-    parser.add_argument(
+    verbosity_group = parser.add_mutually_exclusive_group()
+    verbosity_group.add_argument(
         "-v",
         "--verbose",
         action="count",
         default=0,
         help="Show diagnostic logs. Use -vv for HTTP-level debug details.",
     )
-    parser.add_argument(
+    verbosity_group.add_argument(
         "-q",
         "--quiet",
         action="store_true",
         help="Suppress diagnostic logs except errors. Summary output is unchanged.",
+    )
+    parser.add_argument(
+        "-V",
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+        help="Show version and exit.",
     )
     return parser
 
