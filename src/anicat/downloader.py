@@ -37,6 +37,25 @@ class StreamState:
     total_bytes: int | None = None
     validator: str | None = None
 
+    def reset(self) -> None:
+        """Forget stream identity after the server forces a full restart."""
+
+        self.total_bytes = None
+        self.validator = None
+
+    def observe(self, headers: Mapping[str, str], total_bytes: int | None) -> None:
+        """Validate and remember stable stream identity across retry attempts."""
+
+        if self.total_bytes is None:
+            self.total_bytes = total_bytes
+        elif total_bytes is not None and self.total_bytes != total_bytes:
+            raise DownloadError(
+                f"stream size changed during retry: {self.total_bytes} -> {total_bytes}"
+            )
+
+        if self.validator is None:
+            self.validator = _stream_validator(headers)
+
 
 class VideoSource(Protocol):
     """Minimal HTTP dependency required by the downloader."""
@@ -240,8 +259,7 @@ def _download_stream_attempt(
     try:
         normalized_resume_from = _normalize_resume_state(response, part_path, resume_from)
         if normalized_resume_from < resume_from:
-            state.validator = None
-            state.total_bytes = None
+            state.reset()
             _emit_progress(
                 progress,
                 episode,
@@ -261,7 +279,7 @@ def _download_stream_attempt(
             response.status_code,
             range_info=range_info,
         )
-        _update_stream_state(state, response.headers, total_bytes)
+        state.observe(response.headers, total_bytes)
         written = _write_response_body(
             response,
             part_path,
@@ -369,24 +387,6 @@ def _resolve_total_bytes(
     if content_length and content_length.isdigit():
         return resume_from + int(content_length)
     return None
-
-
-def _update_stream_state(
-    state: StreamState,
-    headers: Mapping[str, str],
-    total_bytes: int | None,
-) -> None:
-    """Track stable stream identity across retry attempts."""
-
-    if state.total_bytes is None:
-        state.total_bytes = total_bytes
-    elif total_bytes is not None and state.total_bytes != total_bytes:
-        raise DownloadError(
-            f"stream size changed during retry: {state.total_bytes} -> {total_bytes}"
-        )
-
-    if state.validator is None:
-        state.validator = _stream_validator(headers)
 
 
 def _stream_validator(headers: Mapping[str, str]) -> str | None:
