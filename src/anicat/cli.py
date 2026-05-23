@@ -15,6 +15,10 @@ from .progress import rich_download_progress
 from .service import AniCatService
 from .urls import split_urls
 
+EXIT_OK = 0
+EXIT_FAILURE = 1
+EXIT_USAGE = 2
+
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the command-line argument parser."""
@@ -22,6 +26,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="anicat",
         description="Download Anime1 episodes from episode or category URLs.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Exit codes:\n"
+            "  0  All downloads completed or were skipped\n"
+            "  1  At least one URL failed or no episode was found\n"
+            "  2  Invalid CLI usage or options"
+        ),
     )
     parser.add_argument(
         "urls",
@@ -101,21 +112,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         options = options_from_args(args)
     except ValueError as error:
         print(f"argument error: {error}", file=sys.stderr)
-        return 2
+        return EXIT_USAGE
 
     input_urls = split_urls(args.urls)
     if not input_urls:
         if not sys.stdin.isatty():
             print("No URL provided.", file=sys.stderr)
-            return 2
+            return EXIT_USAGE
         try:
             input_urls = split_urls([input("? Anime1 URL：")])
         except EOFError:
             print("No URL provided.", file=sys.stderr)
-            return 2
+            return EXIT_USAGE
     if not input_urls:
         print("No URL provided.", file=sys.stderr)
-        return 2
+        return EXIT_USAGE
 
     service = AniCatService(options)
 
@@ -123,11 +134,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         episode_urls = service.collect_episode_urls(input_urls)
     except AniCatError as error:
         print(f"- {error}", file=sys.stderr)
-        return 1
+        return EXIT_FAILURE
 
     if not episode_urls:
         print("- No episode found.", file=sys.stderr)
-        return 1
+        return EXIT_FAILURE
 
     started_at = time.perf_counter()
     reports = run_downloads(service, options, episode_urls)
@@ -151,7 +162,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"+ done in {elapsed:.2f}s: "
         f"{len(downloaded)} downloaded, {len(skipped)} skipped, {len(failed)} failed"
     )
-    return 1 if failed else 0
+    return EXIT_FAILURE if failed else EXIT_OK
 
 
 def options_from_args(args: argparse.Namespace) -> DownloadOptions:

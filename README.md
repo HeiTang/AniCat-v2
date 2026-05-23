@@ -74,6 +74,13 @@ poetry run anicat --help
 | `-v`, `--verbose` | 顯示診斷 log；`-vv` 會顯示 HTTP retry/debug 細節 | `False` |
 | `-q`, `--quiet` | 只保留錯誤等級的診斷 log，下載摘要輸出不受影響 | `False` |
 
+## Exit Codes
+
+| Code | 意義 |
+|---|---|
+| `0` | 全部下載成功，或目標檔案已存在而略過 |
+| `1` | 至少一個 URL 失敗，或沒有找到任何集數 |
+| `2` | CLI 使用方式或參數錯誤，例如沒有輸入 URL |
 
 ## 專案架構
 
@@ -127,10 +134,17 @@ poetry run python -m compileall src/anicat tests
 poetry check
 ```
 
+真實 Anime1 smoke test 預設不跑，避免 CI 依賴外部網站；需要時手動開啟：
+
+```bash
+ANICAT_RUN_INTEGRATION=1 poetry run python -m unittest tests.test_integration_smoke
+ANICAT_RUN_INTEGRATION=1 ANICAT_SMOKE_URL=https://anime1.me/28979 poetry run python -m unittest tests.test_integration_smoke
+```
+
 GitHub Actions 會在 push / pull request 時執行格式檢查、lint、型別檢查、單元測試與語法編譯檢查。
 
 ## 備註
 
 - 單元測試不依賴 Anime1 網路狀態。
-- 真實下載 smoke test 建議手動執行，不放進 CI。
+- 真實 Anime1 smoke test 只測解析與 Range contract，不下載完整影片。
 - 若 Anime1 HTML/API 結構改變，優先修 `extractor` 與對應 fixture tests。
