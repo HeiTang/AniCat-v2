@@ -19,6 +19,7 @@ anicat = "anicat.cli:main"
 
 [tool.poetry]
 packages = [{include = "anicat", from = "src"}]
+include = ["src/anicat/py.typed"]
 
 [tool.ruff]
 line-length = 100
