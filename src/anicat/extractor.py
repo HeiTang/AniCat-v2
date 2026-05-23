@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from http.cookies import CookieError, SimpleCookie
 from typing import Any, Protocol
@@ -13,6 +14,7 @@ from .errors import ParseError
 from .models import Episode
 
 ACCESS_COOKIE_NAMES = ("e", "p", "h")
+SET_COOKIE_SEPARATOR_PATTERN = re.compile(r",\s*(?=[^=;,\s]+=)")
 LOGGER = logging.getLogger(__name__)
 
 
@@ -117,11 +119,7 @@ def extract_access_cookies(response: requests.Response) -> dict[str, str]:
     if len(cookies) == len(ACCESS_COOKIE_NAMES):
         return cookies
 
-    parsed = SimpleCookie()
-    try:
-        parsed.load(response.headers.get("set-cookie", ""))
-    except CookieError:
-        parsed = SimpleCookie()
+    parsed = parse_set_cookie_header(response.headers.get("set-cookie", ""))
 
     for name in ACCESS_COOKIE_NAMES:
         if name not in cookies and name in parsed:
@@ -132,6 +130,35 @@ def extract_access_cookies(response: requests.Response) -> dict[str, str]:
         raise ParseError(f"API response is missing access cookies: {', '.join(missing)}")
 
     return cookies
+
+
+def parse_set_cookie_header(header: str) -> SimpleCookie:
+    """Parse a possibly comma-joined Set-Cookie header into a SimpleCookie."""
+
+    parsed = SimpleCookie()
+    if not header:
+        return parsed
+
+    try:
+        parsed.load(header)
+    except CookieError:
+        parsed = SimpleCookie()
+
+    if parsed:
+        return parsed
+
+    for item in split_combined_set_cookie_header(header):
+        try:
+            parsed.load(item)
+        except CookieError:
+            continue
+    return parsed
+
+
+def split_combined_set_cookie_header(header: str) -> list[str]:
+    """Split requests-style comma-joined Set-Cookie headers into cookie fields."""
+
+    return [item.strip() for item in SET_COOKIE_SEPARATOR_PATTERN.split(header) if item.strip()]
 
 
 class Anime1Extractor:

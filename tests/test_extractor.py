@@ -7,6 +7,7 @@ from anicat.extractor import (
     extract_access_cookies,
     parse_episode_page,
     parse_season_page,
+    parse_set_cookie_header,
     parse_stream_url,
 )
 
@@ -88,6 +89,37 @@ class ExtractorTests(unittest.TestCase):
         response.headers["set-cookie"] = "e=1; Path=/; p=2; Path=/; h=3; Path=/"
 
         self.assertEqual(extract_access_cookies(response), {"e": "1", "p": "2", "h": "3"})
+
+    def test_extract_access_cookies_from_comma_joined_set_cookie_header(self):
+        response = requests.Response()
+        response.headers["set-cookie"] = (
+            "e=token-e; expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/; HttpOnly, "
+            "p=token-p; expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/; HttpOnly, "
+            "h=token-h; Path=/; Secure; SameSite=None"
+        )
+
+        self.assertEqual(
+            extract_access_cookies(response),
+            {"e": "token-e", "p": "token-p", "h": "token-h"},
+        )
+
+    def test_extract_access_cookies_merges_cookie_jar_and_header_fallback(self):
+        response = requests.Response()
+        response.cookies.set("e", "jar-e")
+        response.headers["set-cookie"] = "p=header-p; Path=/; HttpOnly, h=header-h; Path=/"
+
+        self.assertEqual(
+            extract_access_cookies(response),
+            {"e": "jar-e", "p": "header-p", "h": "header-h"},
+        )
+
+    def test_parse_set_cookie_header_preserves_expires_commas(self):
+        parsed = parse_set_cookie_header(
+            "e=1; expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/; HttpOnly, p=2; Path=/"
+        )
+
+        self.assertEqual(parsed["e"].value, "1")
+        self.assertEqual(parsed["p"].value, "2")
 
     def test_extract_access_cookies_rejects_missing_values(self):
         response = requests.Response()
