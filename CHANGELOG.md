@@ -21,6 +21,7 @@
 - 統一專案預設值與常數來源，降低 magic numbers。
 - 併發下載改為每個 worker thread 重用一個 HTTP client/session，降低 connection pool 浪費。
 - 強化 Anime1 `Set-Cookie` fallback parser，支援 comma-joined header 與 `expires` 內含逗號的情境。
+- 移除 `lxml` 必要依賴，改用 BeautifulSoup 的標準 `html.parser` fallback，降低 Windows 安裝失敗機率。
 - README 改為繁體中文產品導向文件。
 
 ### Quality

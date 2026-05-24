@@ -1,11 +1,14 @@
 import unittest
+from unittest.mock import patch
 
 import requests
+from bs4 import BeautifulSoup, FeatureNotFound
 
 from anicat.errors import ParseError
 from anicat.extractor import (
     extract_access_cookies,
     parse_episode_page,
+    parse_html,
     parse_season_page,
     parse_set_cookie_header,
     parse_stream_url,
@@ -35,6 +38,23 @@ class ExtractorTests(unittest.TestCase):
 
         self.assertEqual(data_apireq, "abc123")
         self.assertEqual(title, "Demo Episode")
+
+    def test_parse_html_falls_back_when_lxml_is_unavailable(self):
+        parsers: list[str] = []
+
+        def fake_beautiful_soup(html: str, parser: str) -> BeautifulSoup:
+            parsers.append(parser)
+            if parser == "lxml":
+                raise FeatureNotFound("lxml unavailable")
+            return BeautifulSoup(html, parser)
+
+        with patch("anicat.extractor.BeautifulSoup", side_effect=fake_beautiful_soup):
+            soup = parse_html('<h2 class="entry-title">Demo</h2>')
+
+        title = soup.select_one("h2.entry-title")
+        assert title is not None
+        self.assertEqual(parsers, ["lxml", "html.parser"])
+        self.assertEqual(title.get_text(strip=True), "Demo")
 
     def test_parse_episode_page_rejects_missing_video_data(self):
         with self.assertRaises(ParseError):
