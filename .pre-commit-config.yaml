@@ -1,0 +1,32 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format-check
+        name: ruff format check
+        entry: poetry run ruff format --check .
+        language: system
+        pass_filenames: false
+
+      - id: ruff-check
+        name: ruff check
+        entry: poetry run ruff check .
+        language: system
+        pass_filenames: false
+
+      - id: pyright
+        name: pyright
+        entry: poetry run pyright
+        language: system
+        pass_filenames: false
+
+      - id: unittest
+        name: unittest
+        entry: poetry run python -m unittest
+        language: system
+        pass_filenames: false
+
+      - id: poetry-check
+        name: poetry check
+        entry: poetry check
+        language: system
+        pass_filenames: false
