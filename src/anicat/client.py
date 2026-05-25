@@ -78,6 +78,11 @@ class Anime1Client:
 
         return self.request("POST", url).text
 
+    def get_page(self, url: str) -> str:
+        """Fetch an Anime1 HTML page using a normal browser-style GET method."""
+
+        return self.request("GET", url).text
+
     def post_api(self, data_apireq: str) -> requests.Response:
         """Submit episode API payload and return the raw API response."""
 

@@ -1,4 +1,5 @@
 import unittest
+from typing import NoReturn
 from unittest.mock import patch
 
 import requests
@@ -6,13 +7,33 @@ from bs4 import BeautifulSoup, FeatureNotFound
 
 from anicat.errors import ParseError
 from anicat.extractor import (
+    Anime1Extractor,
     extract_access_cookies,
+    parse_direct_episode_page,
     parse_episode_page,
     parse_html,
     parse_season_page,
     parse_set_cookie_header,
     parse_stream_url,
 )
+
+
+class DirectPageClient:
+    def __init__(self, pages: dict[str, str]) -> None:
+        self.pages = pages
+        self.get_calls: list[str] = []
+        self.post_calls: list[str] = []
+
+    def get_page(self, url: str) -> str:
+        self.get_calls.append(url)
+        return self.pages[url]
+
+    def post_page(self, url: str) -> str:
+        self.post_calls.append(url)
+        return self.pages[url]
+
+    def post_api(self, data_apireq: str) -> NoReturn:
+        raise AssertionError("anime1.pw extraction should not call post_api")
 
 
 class ExtractorTests(unittest.TestCase):
@@ -38,6 +59,97 @@ class ExtractorTests(unittest.TestCase):
 
         self.assertEqual(data_apireq, "abc123")
         self.assertEqual(title, "Demo Episode")
+
+    def test_parse_direct_episode_page_extracts_title_and_source(self):
+        stream_url, title = parse_direct_episode_page(
+            """
+            <h1 class="entry-title"> Direct Demo [06] </h1>
+            <video class="video-js">
+                <source src="//pwvideo.example/60/6.mp4?h=token&e=1" type="video/mp4">
+            </video>
+            """,
+            "https://anime1.pw/349",
+        )
+
+        self.assertEqual(stream_url, "https://pwvideo.example/60/6.mp4?h=token&e=1")
+        self.assertEqual(title, "Direct Demo [06]")
+
+    def test_parse_direct_episode_page_prefers_mp4_source_and_warns(self):
+        with self.assertLogs("anicat.extractor", level="WARNING") as logs:
+            stream_url, title = parse_direct_episode_page(
+                """
+                <h1 class="entry-title"> Direct Demo [06] </h1>
+                <video class="video-js">
+                    <source src="//pwvideo.example/60/6.m3u8" type="application/x-mpegURL">
+                    <source src="//pwvideo.example/60/6.mp4?h=token&e=1" type="video/mp4">
+                </video>
+                """,
+                "https://anime1.pw/349",
+            )
+
+        self.assertEqual(stream_url, "https://pwvideo.example/60/6.mp4?h=token&e=1")
+        self.assertEqual(title, "Direct Demo [06]")
+        self.assertIn("2 source candidates", logs.output[0])
+        self.assertIn("1 MP4-compatible", logs.output[0])
+
+    def test_parse_direct_episode_page_accepts_untyped_mp4_source(self):
+        stream_url, title = parse_direct_episode_page(
+            """
+            <h1 class="entry-title"> Direct Demo [06] </h1>
+            <video class="video-js">
+                <source src="//pwvideo.example/60/6.mp4?h=token&e=1">
+            </video>
+            """,
+            "https://anime1.pw/349",
+        )
+
+        self.assertEqual(stream_url, "https://pwvideo.example/60/6.mp4?h=token&e=1")
+        self.assertEqual(title, "Direct Demo [06]")
+
+    def test_parse_direct_episode_page_rejects_missing_source(self):
+        with self.assertRaisesRegex(ParseError, "video source"):
+            parse_direct_episode_page('<h1 class="entry-title">Demo</h1>', "https://anime1.pw/1")
+
+    def test_parse_direct_episode_page_rejects_non_mp4_source(self):
+        with self.assertRaisesRegex(ParseError, "MP4 video source"):
+            parse_direct_episode_page(
+                """
+                <h1 class="entry-title">Direct Demo</h1>
+                <video class="video-js">
+                    <source src="//pwvideo.example/playlist.m3u8" type="application/x-mpegURL">
+                </video>
+                """,
+                "https://anime1.pw/1",
+            )
+
+    def test_parse_direct_episode_page_rejects_untyped_non_mp4_source(self):
+        with self.assertRaisesRegex(ParseError, "MP4 video source"):
+            parse_direct_episode_page(
+                """
+                <h1 class="entry-title">Direct Demo</h1>
+                <video class="video-js">
+                    <source src="//pwvideo.example/playlist.m3u8">
+                </video>
+                """,
+                "https://anime1.pw/1",
+            )
+
+    def test_parse_direct_episode_page_warns_when_no_source_is_mp4(self):
+        with self.assertLogs("anicat.extractor", level="WARNING") as logs:
+            with self.assertRaisesRegex(ParseError, "MP4 video source"):
+                parse_direct_episode_page(
+                    """
+                    <h1 class="entry-title">Direct Demo</h1>
+                    <video class="video-js">
+                        <source src="//pwvideo.example/playlist.m3u8">
+                        <source src="//pwvideo.example/video.webm" type="video/webm">
+                    </video>
+                    """,
+                    "https://anime1.pw/1",
+                )
+
+        self.assertIn("2 source candidates", logs.output[0])
+        self.assertIn("0 MP4-compatible", logs.output[0])
 
     def test_parse_html_falls_back_when_lxml_is_unavailable(self):
         parsers: list[str] = []
@@ -147,6 +259,59 @@ class ExtractorTests(unittest.TestCase):
 
         with self.assertRaises(ParseError):
             extract_access_cookies(response)
+
+    def test_anime1_pw_episode_uses_direct_source_without_api(self):
+        client = DirectPageClient(
+            {
+                "https://anime1.pw/349": """
+                <h1 class="entry-title">Direct Demo [06]</h1>
+                <video class="video-js">
+                    <source src="//pwvideo.example/60/6.mp4?h=token&e=1" type="video/mp4">
+                </video>
+                """,
+            }
+        )
+
+        episode = Anime1Extractor(client).episode("https://anime1.pw/349")
+
+        self.assertEqual(episode.page_url, "https://anime1.pw/349")
+        self.assertEqual(episode.title, "Direct Demo [06]")
+        self.assertEqual(episode.stream_url, "https://pwvideo.example/60/6.mp4?h=token&e=1")
+        self.assertEqual(episode.cookies, {})
+        self.assertEqual(client.get_calls, ["https://anime1.pw/349"])
+        self.assertEqual(client.post_calls, [])
+
+    def test_anime1_pw_category_collects_episode_urls(self):
+        client = DirectPageClient(
+            {
+                "https://anime1.pw/?cat=60": """
+                <h2 class="entry-title">
+                    <a href="https://anime1.pw/349" rel="bookmark">Episode 6</a>
+                </h2>
+                <h2 class="entry-title">
+                    <a href="/348" rel="bookmark">Episode 5</a>
+                </h2>
+                """,
+            }
+        )
+
+        urls = Anime1Extractor(client).season_episode_urls("https://anime1.pw/?cat=60")
+
+        self.assertEqual(urls, ["https://anime1.pw/349", "https://anime1.pw/348"])
+        self.assertEqual(client.get_calls, ["https://anime1.pw/?cat=60"])
+        self.assertEqual(client.post_calls, [])
+
+    def test_anime1_pw_category_rejects_empty_episode_list(self):
+        client = DirectPageClient(
+            {
+                "https://anime1.pw/?cat=60": """
+                <html><body><p>No matching selector anymore.</p></body></html>
+                """,
+            }
+        )
+
+        with self.assertRaisesRegex(ParseError, "no episode links"):
+            Anime1Extractor(client).season_episode_urls("https://anime1.pw/?cat=60")
 
 
 if __name__ == "__main__":
