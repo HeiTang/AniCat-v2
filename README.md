@@ -32,7 +32,7 @@ AniCat-v2 是一個專注於 Anime1 下載體驗的 CLI 工具。它可以把單
 ### A. GitHub Release 安裝（推薦）
 
 ```bash
-python3 -m pip install "git+https://github.com/HeiTang/AniCat-v2.git@v0.2.0-rc.1"
+python3 -m pip install "git+https://github.com/HeiTang/AniCat-v2.git@v0.2.0"
 anicat --help
 ```
 
