@@ -12,6 +12,9 @@ from anicat.service import AniCatService
 
 
 class BadClient:
+    def get_page(self, url: str) -> str:
+        return "<html></html>"
+
     def post_page(self, url: str) -> str:
         return "<html></html>"
 
@@ -72,6 +75,9 @@ class GoodClient:
         <video class="video-js" data-apireq="%7B%7D"></video>
         """
 
+    def get_page(self, url: str) -> str:
+        return self.post_page(url)
+
     def post_api(self, data_apireq: str) -> requests.Response:
         return cast(requests.Response, ApiResponse())
 
@@ -82,6 +88,42 @@ class GoodClient:
         cookies: Mapping[str, str],
         headers: Mapping[str, str] | None = None,
     ) -> VideoStreamResponse:
+        return VideoResponse()
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class DirectClient:
+    instances: ClassVar[list["DirectClient"]] = []
+
+    def __init__(self) -> None:
+        self.closed = False
+        self.stream_calls: list[tuple[str, dict[str, str]]] = []
+        self.instances.append(self)
+
+    def get_page(self, url: str) -> str:
+        return """
+        <h1 class="entry-title">Direct Demo</h1>
+        <video class="video-js">
+            <source src="//pwvideo.example/60/6.mp4?h=token&e=1" type="video/mp4">
+        </video>
+        """
+
+    def post_page(self, url: str) -> NoReturn:
+        raise AssertionError("anime1.pw extraction should use get_page")
+
+    def post_api(self, data_apireq: str) -> NoReturn:
+        raise AssertionError("direct source extraction should not call post_api")
+
+    def stream_video(
+        self,
+        url: str,
+        *,
+        cookies: Mapping[str, str],
+        headers: Mapping[str, str] | None = None,
+    ) -> VideoStreamResponse:
+        self.stream_calls.append((url, dict(cookies)))
         return VideoResponse()
 
     def close(self) -> None:
@@ -182,6 +224,26 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(urls, ["https://anime1.me/1"])
         self.assertEqual(len(GoodClient.instances), 1)
         self.assertTrue(GoodClient.instances[0].closed)
+
+    def test_download_one_supports_anime1_pw_direct_source(self):
+        DirectClient.instances.clear()
+
+        with TemporaryDirectory() as directory:
+            service = AniCatService(
+                DownloadOptions(output_dir=Path(directory), chunk_size=1024),
+                client_factory=DirectClient,
+            )
+
+            report = service.download_one("https://anime1.pw/349")
+
+            result = report.result
+            assert result is not None
+            self.assertEqual(result.path.read_bytes(), VideoResponse.content)
+            self.assertEqual(
+                DirectClient.instances[0].stream_calls,
+                [("https://pwvideo.example/60/6.mp4?h=token&e=1", {})],
+            )
+            self.assertTrue(DirectClient.instances[0].closed)
 
 
 if __name__ == "__main__":

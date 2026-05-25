@@ -45,6 +45,16 @@ class ClientTests(unittest.TestCase):
             "application/x-www-form-urlencoded",
         )
 
+    def test_get_page_uses_get_method(self):
+        session = FakeSession()
+        client = Anime1Client(session=cast(Any, session))
+
+        client.get_page("https://anime1.pw/349")
+
+        method, url, _ = session.calls[0]
+        self.assertEqual(method, "GET")
+        self.assertEqual(url, "https://anime1.pw/349")
+
     def test_stream_video_uses_client_timeout(self):
         session = FakeSession()
         client = Anime1Client(session=cast(Any, session), timeout=(1.0, 2.0))
