@@ -7,6 +7,8 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from . import __version__
+from .catalog import fetch_catalog, search_catalog
+from .client import Anime1Client
 from .constants import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_CONCURRENCY,
@@ -17,7 +19,7 @@ from .constants import (
 )
 from .errors import AniCatError
 from .logging_config import configure_logging
-from .models import JobReport
+from .models import AnimeEntry, JobReport
 from .options import DownloadOptions
 from .progress import rich_download_progress
 from .service import AniCatService
@@ -26,6 +28,7 @@ from .urls import split_urls
 EXIT_OK = 0
 EXIT_FAILURE = 1
 EXIT_USAGE = 2
+SEARCH_COMMAND = "search"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -36,9 +39,12 @@ def build_parser() -> argparse.ArgumentParser:
         description="Download Anime1 episodes from episode or category URLs.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
+            "Commands:\n"
+            "  search <keyword>  List catalogue matches and their category URLs\n"
+            "\n"
             "Exit codes:\n"
             "  0  All downloads completed or were skipped\n"
-            "  1  At least one URL failed or no episode was found\n"
+            "  1  At least one URL failed, no episode was found, or nothing matched\n"
             "  2  Invalid CLI usage or options"
         ),
     )
@@ -124,11 +130,45 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_search_parser() -> argparse.ArgumentParser:
+    """Build the argument parser for the catalogue search subcommand."""
+
+    parser = argparse.ArgumentParser(
+        prog="anicat search",
+        description="Search the Anime1 catalogue and print matching category URLs.",
+    )
+    parser.add_argument(
+        "keyword",
+        help="Substring matched against anime titles, ignoring case.",
+    )
+    verbosity_group = parser.add_mutually_exclusive_group()
+    verbosity_group.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="Show diagnostic logs. Use -vv for HTTP-level debug details.",
+    )
+    verbosity_group.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Suppress diagnostic logs except errors.",
+    )
+    return parser
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the AniCat CLI and return a process exit code."""
 
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    # Dispatched before the download parser so that plain `anicat <url>` keeps
+    # working without requiring a subcommand.
+    if arguments and arguments[0] == SEARCH_COMMAND:
+        return search_main(arguments[1:])
+
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(arguments)
     configure_logging(verbose=args.verbose, quiet=args.quiet)
     try:
         options = options_from_args(args)
@@ -185,6 +225,41 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"{len(downloaded)} downloaded, {len(skipped)} skipped, {len(failed)} failed"
     )
     return EXIT_FAILURE if failed else EXIT_OK
+
+
+def search_main(argv: Sequence[str]) -> int:
+    """Run the catalogue search subcommand and return a process exit code."""
+
+    parser = build_search_parser()
+    args = parser.parse_args(argv)
+    configure_logging(verbose=args.verbose, quiet=args.quiet)
+
+    client = Anime1Client()
+    try:
+        entries = search_catalog(fetch_catalog(client), args.keyword)
+    except AniCatError as error:
+        print(f"- {error}", file=sys.stderr)
+        return EXIT_FAILURE
+    finally:
+        client.close()
+
+    if not entries:
+        print(f"- No catalogue match for {args.keyword!r}.", file=sys.stderr)
+        return EXIT_FAILURE
+
+    for entry in entries:
+        print(format_entry(entry))
+        print(f"  -> {entry.url}")
+    print(f"+ {len(entries)} result(s)")
+    return EXIT_OK
+
+
+def format_entry(entry: AnimeEntry) -> str:
+    """Render one catalogue entry as a single summary line."""
+
+    parts = (entry.episodes, f"{entry.year} {entry.season}".strip(), entry.subtitle_group)
+    details = " · ".join(part for part in parts if part)
+    return f"{entry.title} [{details}]"
 
 
 def options_from_args(args: argparse.Namespace) -> DownloadOptions:

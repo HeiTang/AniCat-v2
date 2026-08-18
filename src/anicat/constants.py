@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 API_URL = "https://v.anime1.me/api"
+ANIME_LIST_URL = "https://anime1.me/animelist.json"
 DEFAULT_OUTPUT_DIR_NAME = "Anime1_Download"
 
 DEFAULT_CONCURRENCY = 3

@@ -3,7 +3,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from unittest.mock import patch
 
-from anicat import __version__
+from anicat import AnimeEntry, __version__
 from anicat.cli import EXIT_FAILURE, EXIT_OK, EXIT_USAGE, build_parser, main, options_from_args
 
 
@@ -58,6 +58,44 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(args.verbose, 0)
         self.assertTrue(args.quiet)
+
+    def test_search_subcommand_prints_titles_and_category_urls(self):
+        entries = [
+            AnimeEntry(
+                anime_id=1935,
+                title="GRAND BLUE 碧藍之海 第三季",
+                episodes="連載中(07)",
+                year="2026",
+                season="夏",
+                subtitle_group="",
+                url="https://anime1.me/?cat=1935",
+            )
+        ]
+        stdout = StringIO()
+
+        with (
+            patch("anicat.cli.Anime1Client"),
+            patch("anicat.cli.fetch_catalog", return_value=entries),
+            redirect_stdout(stdout),
+        ):
+            self.assertEqual(main(["search", "碧藍之海"]), EXIT_OK)
+
+        output = stdout.getvalue()
+        self.assertIn("GRAND BLUE 碧藍之海 第三季", output)
+        self.assertIn("https://anime1.me/?cat=1935", output)
+        self.assertIn("1 result(s)", output)
+
+    def test_search_without_match_returns_failure(self):
+        with (
+            patch("anicat.cli.Anime1Client"),
+            patch("anicat.cli.fetch_catalog", return_value=[]),
+            redirect_stderr(StringIO()),
+        ):
+            self.assertEqual(main(["search", "no such anime"]), EXIT_FAILURE)
+
+    def test_non_search_first_argument_still_uses_the_download_parser(self):
+        with patch("anicat.cli.search_main", side_effect=AssertionError("search should not run")):
+            self.assertEqual(main(["--timeout", "0", "https://anime1.me/1"]), EXIT_USAGE)
 
     def test_exit_code_constants_match_documented_values(self):
         self.assertEqual(EXIT_OK, 0)
