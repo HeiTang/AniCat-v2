@@ -4,6 +4,8 @@
 
 ### Added
 
+- 新增 `anicat search KEYWORD` 子指令：查詢 Anime1 目錄索引並印出可直接下載的分類 URL，不必自行到網站複製網址。
+- 新增 `anicat.catalog` 模組（`fetch_catalog` / `search_catalog` / `parse_catalog`）與 `AnimeEntry` model，並由 root package re-export `AnimeEntry`。
 - 支援 `anime1.pw` 單集、`?cat=` 分類頁與 slug 分類頁下載；此來源直接解析頁面 MP4 source，沿用現有 Range 續傳下載流程。
 
 ### Changed
@@ -13,6 +15,7 @@
 
 ### Fixed
 
+- `anime1.me` 的 `?cat=N` 分類 URL 先前被判定為不支援，但那正是 Anime1 目錄索引使用的連結形式；現已與 `anime1.pw` 的判斷邏輯一致。
 - 分類頁 HTML 無法解析出 episode link 時改為回報 `ParseError`，避免 selector 失效時 silent 回傳 0 集。
 
 ## 0.1.0 - 2026-05-24
