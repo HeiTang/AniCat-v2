@@ -17,6 +17,7 @@
 ### Fixed
 
 - `anime1.me` 的 `?cat=N` 分類 URL 先前被判定為不支援，但那正是 Anime1 目錄索引使用的連結形式；現已與 `anime1.pw` 的判斷邏輯一致。
+- `__version__` 停留在 `0.1.0` 而 package 已是 `0.2.0`，導致 `anicat --version` 回報錯誤版本；並新增測試比對 distribution metadata 防止再次漂移。
 - 分類頁 HTML 無法解析出 episode link 時改為回報 `ParseError`，避免 selector 失效時 silent 回傳 0 集。
 
 ## 0.1.0 - 2026-05-24
