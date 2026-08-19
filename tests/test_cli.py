@@ -1,3 +1,4 @@
+import os
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
@@ -74,6 +75,8 @@ class CliTests(unittest.TestCase):
         stdout = StringIO()
 
         with (
+            # Pin the render width so table wrapping cannot break these assertions.
+            patch.dict(os.environ, {"COLUMNS": "200"}),
             patch("anicat.cli.Anime1Client"),
             patch("anicat.cli.fetch_catalog", return_value=entries),
             redirect_stdout(stdout),

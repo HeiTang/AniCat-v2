@@ -73,12 +73,16 @@ anicat search KEYWORD
     ```
 
     ```text
-    GRAND BLUE 碧藍之海 第三季 [連載中(07) · 2026 夏]
-      -> https://anime1.me/?cat=1935
-    GRAND BLUE 碧藍之海 第二季 [1-12 · 2025 夏 · 悠哈璃羽]
-      -> https://anime1.me/?cat=1708
-    + 2 result(s)
+     Title                        Episodes · Season                   URL
+     ─────────────────────────────────────────────────────────────────────────────────────
+     GRAND BLUE 碧藍之海 第三季   連載中(07) · 2026 夏                https://anime1.me/?cat=1935
+     GRAND BLUE 碧藍之海 第二季   1-12 · 2025 夏 · 悠哈璃羽           https://anime1.me/?cat=1708
+     碧藍之海                     1-12 · 2018 夏 · 悠哈璃羽&西農YUI   https://anime1.me/?cat=388
+
+    + 3 result(s)
     ```
+
+    URL 欄位固定寬度，終端機再窄也不會被裁切，可以直接複製貼上。
 
     把印出的網址直接餵回 `anicat` 即可下載整季。
 

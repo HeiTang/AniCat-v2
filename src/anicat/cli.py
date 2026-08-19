@@ -6,6 +6,10 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
+from rich import box
+from rich.console import Console
+from rich.table import Table
+
 from . import __version__
 from .catalog import fetch_catalog, search_catalog
 from .client import Anime1Client
@@ -247,19 +251,38 @@ def search_main(argv: Sequence[str]) -> int:
         print(f"- No catalogue match for {args.keyword!r}.", file=sys.stderr)
         return EXIT_FAILURE
 
-    for entry in entries:
-        print(format_entry(entry))
-        print(f"  -> {entry.url}")
-    print(f"+ {len(entries)} result(s)")
+    render_search_results(entries)
     return EXIT_OK
 
 
-def format_entry(entry: AnimeEntry) -> str:
-    """Render one catalogue entry as a single summary line."""
+def render_search_results(entries: Sequence[AnimeEntry]) -> None:
+    """Render catalogue matches, keeping the URL column intact for copy/paste."""
+
+    # The URL is the payload of this command, so pin its column to the widest
+    # value. Narrow terminals then shrink the title and metadata instead of
+    # cropping a URL into something that cannot be pasted back.
+    table = Table(box=box.SIMPLE_HEAD, header_style="bold cyan", pad_edge=False)
+    table.add_column("Title", style="bold", overflow="fold")
+    table.add_column("Episodes · Season", style="dim")
+    table.add_column(
+        "URL",
+        style="cyan",
+        no_wrap=True,
+        width=max(len(entry.url) for entry in entries),
+    )
+    for entry in entries:
+        table.add_row(entry.title, format_entry_meta(entry), entry.url)
+
+    console = Console()
+    console.print(table)
+    console.print(f"[green]+[/green] {len(entries)} result(s)")
+
+
+def format_entry_meta(entry: AnimeEntry) -> str:
+    """Join the episode, season and subtitle-group metadata of one entry."""
 
     parts = (entry.episodes, f"{entry.year} {entry.season}".strip(), entry.subtitle_group)
-    details = " · ".join(part for part in parts if part)
-    return f"{entry.title} [{details}]"
+    return " · ".join(part for part in parts if part)
 
 
 def options_from_args(args: argparse.Namespace) -> DownloadOptions:
