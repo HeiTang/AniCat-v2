@@ -140,6 +140,15 @@ anicat search --help
 
 搜尋來源是 Anime1 的目錄索引 `animelist.json`，即時抓取不做快取。找不到相符項目時 exit code 為 `1`。
 
+省略 `KEYWORD` 時會互動提問（與 `anicat` 省略 URL 時的行為一致）：
+
+```text
+$ anicat search
+? Search keyword：碧藍之海
+```
+
+在管線或 CI 等非互動環境下不會卡住，直接以 exit code `2` 回報。
+
 ## 進階說明
 
 ### Python API

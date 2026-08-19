@@ -100,6 +100,39 @@ class CliTests(unittest.TestCase):
         with patch("anicat.cli.search_main", side_effect=AssertionError("search should not run")):
             self.assertEqual(main(["--timeout", "0", "https://anime1.me/1"]), EXIT_USAGE)
 
+    def test_search_without_keyword_prompts_when_stdin_is_a_tty(self):
+        stdout = StringIO()
+
+        with (
+            patch.dict(os.environ, {"COLUMNS": "200"}),
+            patch("sys.stdin.isatty", return_value=True),
+            patch("builtins.input", return_value="  碧藍之海  ") as prompt,
+            patch("anicat.cli.Anime1Client"),
+            patch("anicat.cli.fetch_catalog", return_value=[]),
+            redirect_stdout(stdout),
+            redirect_stderr(StringIO()),
+        ):
+            # No match is fine here; the point is that the prompt supplied the keyword.
+            self.assertEqual(main(["search"]), EXIT_FAILURE)
+
+        prompt.assert_called_once()
+
+    def test_search_without_keyword_does_not_prompt_when_stdin_is_not_a_tty(self):
+        with (
+            patch("sys.stdin.isatty", return_value=False),
+            patch("builtins.input", side_effect=AssertionError("input should not run")),
+            redirect_stderr(StringIO()),
+        ):
+            self.assertEqual(main(["search"]), EXIT_USAGE)
+
+    def test_search_with_blank_keyword_returns_usage_error(self):
+        with (
+            patch("sys.stdin.isatty", return_value=True),
+            patch("builtins.input", return_value="   "),
+            redirect_stderr(StringIO()),
+        ):
+            self.assertEqual(main(["search", "   "]), EXIT_USAGE)
+
     def test_exit_code_constants_match_documented_values(self):
         self.assertEqual(EXIT_OK, 0)
         self.assertEqual(EXIT_FAILURE, 1)

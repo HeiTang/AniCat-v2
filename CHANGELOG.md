@@ -10,6 +10,7 @@
 
 ### Changed
 
+- 省略必要參數時的互動提問邏輯抽成共用 helper，`anicat` 與 `anicat search` 行為一致：TTY 下提問，非互動環境直接回報 usage error 而非卡住。
 - `anime1.pw` 頁面解析改用 GET 抓取 HTML，避免依賴 WordPress / Cloudflare 對 POST 頁面請求的相容行為。
 - direct video parser 會優先選擇 `video/mp4` source；若頁面提供多個 source 會記錄 warning。
 

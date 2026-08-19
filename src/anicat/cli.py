@@ -143,6 +143,7 @@ def build_search_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "keyword",
+        nargs="?",
         help="Substring matched against anime titles, ignoring case.",
     )
     verbosity_group = parser.add_mutually_exclusive_group()
@@ -180,16 +181,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"argument error: {error}", file=sys.stderr)
         return EXIT_USAGE
 
-    input_urls = split_urls(args.urls)
-    if not input_urls:
-        if not sys.stdin.isatty():
-            print("No URL provided.", file=sys.stderr)
-            return EXIT_USAGE
-        try:
-            input_urls = split_urls([input("? Anime1 URL：")])
-        except EOFError:
-            print("No URL provided.", file=sys.stderr)
-            return EXIT_USAGE
+    input_urls = split_urls(args.urls) or split_urls([prompt_for("? Anime1 URL：")])
     if not input_urls:
         print("No URL provided.", file=sys.stderr)
         return EXIT_USAGE
@@ -231,6 +223,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     return EXIT_FAILURE if failed else EXIT_OK
 
 
+def prompt_for(label: str) -> str:
+    """Ask for one missing argument, returning empty when input is unavailable."""
+
+    # Piped or redirected input must fail with usage instead of blocking.
+    if not sys.stdin.isatty():
+        return ""
+    try:
+        return input(label).strip()
+    except EOFError:
+        return ""
+
+
 def search_main(argv: Sequence[str]) -> int:
     """Run the catalogue search subcommand and return a process exit code."""
 
@@ -238,9 +242,14 @@ def search_main(argv: Sequence[str]) -> int:
     args = parser.parse_args(argv)
     configure_logging(verbose=args.verbose, quiet=args.quiet)
 
+    keyword = (args.keyword or "").strip() or prompt_for("? Search keyword：")
+    if not keyword:
+        print("No keyword provided.", file=sys.stderr)
+        return EXIT_USAGE
+
     client = Anime1Client()
     try:
-        entries = search_catalog(fetch_catalog(client), args.keyword)
+        entries = search_catalog(fetch_catalog(client), keyword)
     except AniCatError as error:
         print(f"- {error}", file=sys.stderr)
         return EXIT_FAILURE
@@ -248,7 +257,7 @@ def search_main(argv: Sequence[str]) -> int:
         client.close()
 
     if not entries:
-        print(f"- No catalogue match for {args.keyword!r}.", file=sys.stderr)
+        print(f"- No catalogue match for {keyword!r}.", file=sys.stderr)
         return EXIT_FAILURE
 
     render_search_results(entries)
@@ -273,7 +282,9 @@ def render_search_results(entries: Sequence[AnimeEntry]) -> None:
     for entry in entries:
         table.add_row(entry.title, format_entry_meta(entry), entry.url)
 
-    console = Console()
+    # Rich's automatic highlighter recolours numbers and stray words in the
+    # summary line, which fights the styling the table already applies.
+    console = Console(highlight=False)
     console.print(table)
     console.print(f"[green]+[/green] {len(entries)} result(s)")
 
