@@ -61,9 +61,30 @@ anicat --help
 
 ```bash
 anicat URL [URL ...] [OPTIONS]
+anicat search KEYWORD
 ```
 
 ### 範例
+
+0. 先搜尋再下載（不必自己去網站找 URL）：
+
+    ```bash
+    anicat search 碧藍之海
+    ```
+
+    ```text
+     Title                        Episodes · Season                   URL
+     ─────────────────────────────────────────────────────────────────────────────────────
+     GRAND BLUE 碧藍之海 第三季   連載中(07) · 2026 夏                https://anime1.me/?cat=1935
+     GRAND BLUE 碧藍之海 第二季   1-12 · 2025 夏 · 悠哈璃羽           https://anime1.me/?cat=1708
+     碧藍之海                     1-12 · 2018 夏 · 悠哈璃羽&西農YUI   https://anime1.me/?cat=388
+
+    + 3 result(s)
+    ```
+
+    URL 欄位固定寬度，終端機再窄也不會被裁切，可以直接複製貼上。
+
+    把印出的網址直接餵回 `anicat` 即可下載整季。
 
 1. 單集下載：
 
@@ -75,6 +96,7 @@ anicat URL [URL ...] [OPTIONS]
 
     ```bash
     anicat https://anime1.me/category/your-category-slug
+    anicat https://anime1.me/?cat=1935
     anicat https://anime1.pw/your-category-slug
     ```
 
@@ -105,7 +127,27 @@ anicat URL [URL ...] [OPTIONS]
 完整參數：
 ```bash
 anicat --help
+anicat search --help
 ```
+
+### `anicat search`
+
+| 參數 | 說明 |
+|---|---|
+| `KEYWORD` | 比對動畫標題的子字串，不分大小寫 |
+| `-v`, `--verbose` | 顯示診斷 log |
+| `-q`, `--quiet` | 只保留錯誤等級 log |
+
+搜尋來源是 Anime1 的目錄索引 `animelist.json`，即時抓取不做快取。找不到相符項目時 exit code 為 `1`。
+
+省略 `KEYWORD` 時會互動提問（與 `anicat` 省略 URL 時的行為一致）：
+
+```text
+$ anicat search
+? Search keyword：碧藍之海
+```
+
+在管線或 CI 等非互動環境下不會卡住，直接以 exit code `2` 回報。
 
 ## 進階說明
 
@@ -125,12 +167,25 @@ episode_urls = service.collect_episode_urls(["https://anime1.me/15651"])
 reports = service.download_many(episode_urls)
 ```
 
+搜尋目錄索引：
+
+```python
+from anicat import Anime1Client
+from anicat.catalog import fetch_catalog, search_catalog
+
+with Anime1Client() as client:
+    matches = search_catalog(fetch_catalog(client), "碧藍之海")
+
+for entry in matches:
+    print(entry.title, entry.url)
+```
+
 ### Exit Codes
 
 | Code | 意義 |
 |---|---|
 | `0` | 全部下載成功，或目標檔案已存在而略過 |
-| `1` | 至少一個 URL 失敗，或沒有找到任何集數 |
+| `1` | 至少一個 URL 失敗、沒有找到任何集數，或搜尋沒有相符項目 |
 | `2` | CLI 使用方式或參數錯誤，例如沒有輸入 URL |
 
 ## 貢獻

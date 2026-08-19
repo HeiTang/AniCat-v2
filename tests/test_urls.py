@@ -57,6 +57,17 @@ class UrlTests(unittest.TestCase):
         self.assertEqual(source_kind("https://anime1.me/15651"), "anime1_me")
         self.assertEqual(source_kind("https://anime1.pw/349"), "anime1_pw")
 
+    def test_anime1_me_category_query_is_a_season_url(self):
+        # The catalogue index links seasons as ?cat=N rather than /category/...
+        self.assertTrue(is_season_url("https://anime1.me/?cat=1935"))
+        self.assertTrue(is_season_url("https://anime1.me/?cat=1935&paged=2"))
+        ensure_supported_url("https://anime1.me/?cat=1935")
+
+    def test_anime1_me_episode_path_wins_over_category_query(self):
+        self.assertFalse(is_season_url("https://anime1.me/28979?cat=1935"))
+        self.assertTrue(is_episode_url("https://anime1.me/28979?cat=1935"))
+        self.assertFalse(is_season_url("https://anime1.me/?cat=abc"))
+
     def test_rejects_unsupported_urls(self):
         with self.assertRaises(AniCatError):
             ensure_supported_url("https://example.com/15651")

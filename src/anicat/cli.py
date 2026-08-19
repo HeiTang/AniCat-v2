@@ -6,7 +6,13 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
+from rich import box
+from rich.console import Console
+from rich.table import Table
+
 from . import __version__
+from .catalog import fetch_catalog, search_catalog
+from .client import Anime1Client
 from .constants import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_CONCURRENCY,
@@ -17,7 +23,7 @@ from .constants import (
 )
 from .errors import AniCatError
 from .logging_config import configure_logging
-from .models import JobReport
+from .models import AnimeEntry, JobReport
 from .options import DownloadOptions
 from .progress import rich_download_progress
 from .service import AniCatService
@@ -26,6 +32,7 @@ from .urls import split_urls
 EXIT_OK = 0
 EXIT_FAILURE = 1
 EXIT_USAGE = 2
+SEARCH_COMMAND = "search"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -36,9 +43,12 @@ def build_parser() -> argparse.ArgumentParser:
         description="Download Anime1 episodes from episode or category URLs.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
+            "Commands:\n"
+            "  search <keyword>  List catalogue matches and their category URLs\n"
+            "\n"
             "Exit codes:\n"
             "  0  All downloads completed or were skipped\n"
-            "  1  At least one URL failed or no episode was found\n"
+            "  1  At least one URL failed, no episode was found, or nothing matched\n"
             "  2  Invalid CLI usage or options"
         ),
     )
@@ -124,11 +134,46 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_search_parser() -> argparse.ArgumentParser:
+    """Build the argument parser for the catalogue search subcommand."""
+
+    parser = argparse.ArgumentParser(
+        prog="anicat search",
+        description="Search the Anime1 catalogue and print matching category URLs.",
+    )
+    parser.add_argument(
+        "keyword",
+        nargs="?",
+        help="Substring matched against anime titles, ignoring case.",
+    )
+    verbosity_group = parser.add_mutually_exclusive_group()
+    verbosity_group.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="Show diagnostic logs. Use -vv for HTTP-level debug details.",
+    )
+    verbosity_group.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Suppress diagnostic logs except errors.",
+    )
+    return parser
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the AniCat CLI and return a process exit code."""
 
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    # Dispatched before the download parser so that plain `anicat <url>` keeps
+    # working without requiring a subcommand.
+    if arguments and arguments[0] == SEARCH_COMMAND:
+        return search_main(arguments[1:])
+
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(arguments)
     configure_logging(verbose=args.verbose, quiet=args.quiet)
     try:
         options = options_from_args(args)
@@ -136,16 +181,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"argument error: {error}", file=sys.stderr)
         return EXIT_USAGE
 
-    input_urls = split_urls(args.urls)
-    if not input_urls:
-        if not sys.stdin.isatty():
-            print("No URL provided.", file=sys.stderr)
-            return EXIT_USAGE
-        try:
-            input_urls = split_urls([input("? Anime1 URL：")])
-        except EOFError:
-            print("No URL provided.", file=sys.stderr)
-            return EXIT_USAGE
+    input_urls = split_urls(args.urls) or split_urls([prompt_for("? Anime1 URL：")])
     if not input_urls:
         print("No URL provided.", file=sys.stderr)
         return EXIT_USAGE
@@ -185,6 +221,79 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"{len(downloaded)} downloaded, {len(skipped)} skipped, {len(failed)} failed"
     )
     return EXIT_FAILURE if failed else EXIT_OK
+
+
+def prompt_for(label: str) -> str:
+    """Ask for one missing argument, returning empty when input is unavailable."""
+
+    # Piped or redirected input must fail with usage instead of blocking.
+    if not sys.stdin.isatty():
+        return ""
+    try:
+        return input(label).strip()
+    except EOFError:
+        return ""
+
+
+def search_main(argv: Sequence[str]) -> int:
+    """Run the catalogue search subcommand and return a process exit code."""
+
+    parser = build_search_parser()
+    args = parser.parse_args(argv)
+    configure_logging(verbose=args.verbose, quiet=args.quiet)
+
+    keyword = (args.keyword or "").strip() or prompt_for("? Search keyword：")
+    if not keyword:
+        print("No keyword provided.", file=sys.stderr)
+        return EXIT_USAGE
+
+    client = Anime1Client()
+    try:
+        entries = search_catalog(fetch_catalog(client), keyword)
+    except AniCatError as error:
+        print(f"- {error}", file=sys.stderr)
+        return EXIT_FAILURE
+    finally:
+        client.close()
+
+    if not entries:
+        print(f"- No catalogue match for {keyword!r}.", file=sys.stderr)
+        return EXIT_FAILURE
+
+    render_search_results(entries)
+    return EXIT_OK
+
+
+def render_search_results(entries: Sequence[AnimeEntry]) -> None:
+    """Render catalogue matches, keeping the URL column intact for copy/paste."""
+
+    # The URL is the payload of this command, so pin its column to the widest
+    # value. Narrow terminals then shrink the title and metadata instead of
+    # cropping a URL into something that cannot be pasted back.
+    table = Table(box=box.SIMPLE_HEAD, header_style="bold cyan", pad_edge=False)
+    table.add_column("Title", style="bold", overflow="fold")
+    table.add_column("Episodes · Season", style="dim")
+    table.add_column(
+        "URL",
+        style="cyan",
+        no_wrap=True,
+        width=max(len(entry.url) for entry in entries),
+    )
+    for entry in entries:
+        table.add_row(entry.title, format_entry_meta(entry), entry.url)
+
+    # Rich's automatic highlighter recolours numbers and stray words in the
+    # summary line, which fights the styling the table already applies.
+    console = Console(highlight=False)
+    console.print(table)
+    console.print(f"[green]+[/green] {len(entries)} result(s)")
+
+
+def format_entry_meta(entry: AnimeEntry) -> str:
+    """Join the episode, season and subtitle-group metadata of one entry."""
+
+    parts = (entry.episodes, f"{entry.year} {entry.season}".strip(), entry.subtitle_group)
+    return " · ".join(part for part in parts if part)
 
 
 def options_from_args(args: argparse.Namespace) -> DownloadOptions:
