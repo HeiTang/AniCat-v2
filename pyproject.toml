@@ -1,6 +1,6 @@
 [project]
 name = "anicat-v2"
-version = "0.2.0"
+version = "0.3.0"
 description = "Anime1 downloader CLI with resumable concurrent downloads."
 authors = [
     {name = "HeiTang",email = "heitang.me@gmail.com"}
