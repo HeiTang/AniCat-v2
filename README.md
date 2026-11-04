@@ -140,3 +140,15 @@ reports = service.download_many(episode_urls)
 ## License
 
 本專案採用 GPL-3.0 License，詳見 [LICENSE](LICENSE) 文件。
+
+## 介紹網站（本機預覽）
+
+`website/` 提供靜態介紹與操作說明，不需 Node 或前端建置工具。
+
+```bash
+python3 -m http.server 8765 --bind 127.0.0.1 --directory website
+```
+
+開啟 `http://127.0.0.1:8765`。網站安裝範例指向已發布的 v0.3.0；
+HLS 與 GUI 屬於另外的開發分支，不包含在網站 PR 或 v0.3.0 內。
+網站尚未公開部署，PyPI 預計使用套件名稱 `anicat`，正式發布前仍使用 GitHub 安裝。
