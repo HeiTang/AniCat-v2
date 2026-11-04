@@ -4,13 +4,14 @@
 
 ### Added
 
-- HLS 下載會在 FFmpeg 前驗證 media playlist 的每個 segment，並比對輸出與 `#EXTINF` 總長；另以 `--retries` 有限次數重試完整工作階段，避免缺片輸出被誤視為成功。
+- HLS 下載會在 FFmpeg 前驗證 media playlist 的每個 segment，並比對輸出與 `#EXTINF` 總長；另以 `--retries` 有限次數重試 playlist 驗證與完整工作階段，避免缺片輸出被誤視為成功。
 - 新增 `anime1.cc` 與 `anime1.in` 的 HLS 單集解析、全集分頁展開及 FFmpeg MP4 輸出。
 - 支援 `anime1.pw` 單集、`?cat=` 分類頁與 slug 分類頁下載；此來源直接解析頁面 MP4 source，沿用現有 Range 續傳下載流程。
 
 ### Changed
 
 - HLS 來源的音訊改用 AAC 重編碼並同步時間戳，以處理上游分段的非遞增 DTS。
+- HLS 音訊重編碼前重設 sample PTS，避免上游 discontinuity 讓 FFmpeg 產生 non-monotonic DTS。
 - HLS 下載在產生非空暫存 MP4 前不會替換既有成品。
 - HLS `timeout` 僅限制來源讀取閒置時間，不設定整集 FFmpeg 總時限。
 - `anime1.pw` 頁面解析改用 GET 抓取 HTML，避免依賴 WordPress / Cloudflare 對 POST 頁面請求的相容行為。

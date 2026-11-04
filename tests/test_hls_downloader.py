@@ -92,18 +92,23 @@ class HlsDownloaderTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "retries"):
             download_hls_episode(self.episode, self.output, retries=-1)
 
+    @patch("anicat.hls_downloader._validate_hls_sources")
     @patch("anicat.hls_downloader.shutil.which", return_value="/bin/ffmpeg")
     @patch("anicat.hls_downloader.subprocess.run")
-    def test_timeout_is_retried(self, run, _which):
+    def test_preflight_timeout_is_retried(self, run, _which, validate):
+        validate.side_effect = [
+            DownloadError("could not fetch HLS segment: timed out"),
+            HlsManifest("https://cdn.example/index.m3u8", 3, 2),
+        ]
+
         def finish(command, **kwargs):
-            if run.call_count == 1:
-                raise subprocess.TimeoutExpired(command, 1)
             Path(command[-1]).write_bytes(b"video")
-            return subprocess.CompletedProcess(command, 0)
+            return subprocess.CompletedProcess(command, 0, stdout=b"out_time_us=2000000\n")
 
         run.side_effect = finish
         result = download_hls_episode(self.episode, self.output, retries=1, timeout=1)
-        self.assertEqual(run.call_count, 2)
+        self.assertEqual(validate.call_count, 2)
+        self.assertEqual(run.call_count, 1)
         self.assertEqual(result.path.read_bytes(), b"video")
 
     @patch(

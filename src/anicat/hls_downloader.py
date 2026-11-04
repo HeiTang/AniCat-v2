@@ -216,7 +216,16 @@ def download_hls_episode(
         raise ValueError("retries must be greater than or equal to 0")
     if any(character in episode.page_url for character in "\r\n"):
         raise DownloadError("invalid episode Referer")
-    manifest = _validate_hls_sources(playlist, episode, timeout)
+    manifest: HlsManifest | None = None
+    for preflight_attempt in range(retries + 1):
+        try:
+            manifest = _validate_hls_sources(playlist, episode, timeout)
+            break
+        except DownloadError as error:
+            if preflight_attempt == retries:
+                raise DownloadError(
+                    f"{error} after {preflight_attempt + 1} preflight attempt(s)"
+                ) from error
     expected_duration = manifest.expected_duration if manifest else None
     output_dir.mkdir(parents=True, exist_ok=True)
     if progress:
@@ -252,7 +261,7 @@ def download_hls_episode(
             "-c:a",
             "aac",
             "-af",
-            "aresample=async=1:first_pts=0",
+            "asetpts=N/SR/TB,aresample=async=1:first_pts=0",
             "-movflags",
             "+faststart",
             "-f",
@@ -266,9 +275,6 @@ def download_hls_episode(
             with tempfile.TemporaryFile() as diagnostics:
                 try:
                     result = subprocess.run(command, stdout=subprocess.PIPE, stderr=diagnostics)
-                except subprocess.TimeoutExpired:
-                    result = subprocess.CompletedProcess(command, -1)
-                    detail = f"timed out after {timeout:g} seconds"
                 except OSError as error:
                     raise DownloadError(f"could not start FFmpeg: {error}") from error
                 else:

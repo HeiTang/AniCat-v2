@@ -71,7 +71,7 @@ anicat https://anime1.cc/681899930-01-0142
 anicat https://anime1.in/2023-xian-ni-10142000
 ```
 
-單次 HLS 工作階段失敗時，`--retries` 會從頭重啟有限次數的 FFmpeg 工作階段；
+HLS playlist 驗證或單次工作階段失敗時，`--retries` 會從頭重試有限次數；
 成功完成前不會替換既有檔案。工作階段外重新執行仍會從頭下載，HLS 不支援 `.part` 續傳。
 `--timeout` 是來源連線/讀取閒置逾時，不是整集下載的總時限，避免正常長集數被誤殺。
 
