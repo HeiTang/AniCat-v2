@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Iterable
+from html import unescape
 from typing import Any, Protocol
 
 from .constants import ANIME_LIST_URL
@@ -68,7 +69,7 @@ def parse_entry(row: Any) -> AnimeEntry | None:
             episodes=str(episodes),
             year=str(year),
             season=str(season),
-            subtitle_group=str(subtitle_group),
+            subtitle_group=unescape(str(subtitle_group)),
             url=f"https://{ANIME1_ME_HOST}/?cat={anime_id}",
         )
 
@@ -86,7 +87,7 @@ def parse_entry(row: Any) -> AnimeEntry | None:
         episodes=str(episodes),
         year=str(year),
         season=str(season),
-        subtitle_group=str(subtitle_group),
+        subtitle_group=unescape(str(subtitle_group)),
         url=href.strip(),
     )
 

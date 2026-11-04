@@ -58,6 +58,13 @@ class ParseCatalogTests(unittest.TestCase):
 
         self.assertEqual([entry.anime_id for entry in entries], [1608, 539])
 
+    def test_subtitle_group_decodes_html_entities_for_both_sources(self):
+        for row in (ME_ROW, PW_ROW):
+            with self.subTest(anime_id=row[0]):
+                entry = parse_catalog(json.dumps([[*row[:5], "悠哈璃羽&amp;西農&#89;UI"]]))[0]
+
+                self.assertEqual(entry.subtitle_group, "悠哈璃羽&西農YUI")
+
     def test_malformed_rows_are_skipped_without_losing_valid_rows(self):
         rows = [ME_ROW, "not-a-row", [1, "too", "short"], [None, "bad id", "", "", "", ""]]
 
