@@ -215,6 +215,9 @@ def download_hls_episode(
             "http,https,tcp,tls,crypto",
             "-rw_timeout",
             str(int(timeout * 1_000_000)),
+            # Segment redirects may switch CDN hosts; do not reuse their TLS connection.
+            "-http_persistent",
+            "0",
             "-referer",
             episode.page_url,
             "-i",
