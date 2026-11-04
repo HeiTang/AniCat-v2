@@ -3,7 +3,7 @@ revision = 3
 requires-python = ">=3.12, <4.0"
 
 [[package]]
-name = "anicat-v2"
+name = "anicat"
 version = "0.2.0"
 source = { editable = "." }
 dependencies = [
