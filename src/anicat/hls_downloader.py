@@ -158,6 +158,41 @@ def _safe_audio_timestamp_correction(line: str) -> bool:
     return 0 <= previous - current <= 4800 and corrected == previous + 1
 
 
+def _validate_output(executable: str, path: Path, duration: float | None) -> None:
+    """Decode the entire candidate before treating TS discontinuities as recoverable."""
+
+    command = [
+        executable,
+        "-nostdin",
+        "-v",
+        "error",
+        "-xerror",
+        "-i",
+        str(path),
+        "-vsync",
+        "0",
+        "-enc_time_base",
+        "-1",
+        "-f",
+        "null",
+        "-",
+    ]
+    with tempfile.TemporaryFile() as diagnostics:
+        try:
+            result = subprocess.run(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=diagnostics,
+                timeout=max(60, (duration or 1800) * 2),
+            )
+        except subprocess.TimeoutExpired as error:
+            raise DownloadError("full video validation timed out") from error
+        diagnostics.seek(0)
+        detail = diagnostics.read(2000).decode("utf-8", errors="replace").strip()
+    if result.returncode or detail:
+        raise DownloadError(f"full video validation failed ({result.returncode}): {detail}")
+
+
 def download_hls_episode(
     episode: Episode,
     output_dir: Path,
@@ -277,11 +312,17 @@ def download_hls_episode(
                         f"got {duration if duration is not None else 'unknown'}s"
                     )
             if complete:
-                break
+                try:
+                    _validate_output(executable, temporary, expected_duration)
+                except DownloadError as error:
+                    last_error = str(error)
+                    complete = False
+                else:
+                    break
 
             if result.returncode or detail:
                 last_error = f"FFmpeg failed ({result.returncode}): {detail}"
-            elif duration is None or expected_duration is None:
+            elif not temporary.is_file() or temporary.stat().st_size == 0:
                 last_error = "FFmpeg produced no video"
             if attempt == retries:
                 raise DownloadError(f"{last_error} after {attempt + 1} attempt(s)")

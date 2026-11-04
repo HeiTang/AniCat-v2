@@ -18,6 +18,9 @@ class HlsDownloaderTests(unittest.TestCase):
         validation = patch("anicat.hls_downloader._validate_hls_sources", return_value=None)
         validation.start()
         self.addCleanup(validation.stop)
+        output_validation = patch("anicat.hls_downloader._validate_output")
+        output_validation.start()
+        self.addCleanup(output_validation.stop)
 
     @patch("anicat.hls_downloader.shutil.which", return_value=None)
     def test_missing_ffmpeg(self, _which):
@@ -143,6 +146,22 @@ class HlsDownloaderTests(unittest.TestCase):
             download_hls_episode(self.episode, self.output, overwrite=True, retries=0)
         self.assertEqual(path.read_bytes(), b"existing")
 
+    @patch("anicat.hls_downloader._validate_output", side_effect=DownloadError("corrupt frame"))
+    @patch("anicat.hls_downloader.shutil.which", return_value="/bin/ffmpeg")
+    @patch("anicat.hls_downloader.subprocess.run")
+    def test_full_decode_failure_preserves_completed_file(self, run, _which, validate):
+        path = self.output / "show.mp4"
+        path.write_bytes(b"original")
+
+        def finish(command, **kwargs):
+            Path(command[-1]).write_bytes(b"damaged")
+            return subprocess.CompletedProcess(command, 0)
+
+        run.side_effect = finish
+        with self.assertRaisesRegex(DownloadError, "corrupt frame"):
+            download_hls_episode(self.episode, self.output, overwrite=True, retries=0)
+        self.assertEqual(path.read_bytes(), b"original")
+
 
 class AudioTimestampDiagnosticTests(unittest.TestCase):
     def test_only_small_audio_mux_correction_is_allowed(self):
@@ -165,3 +184,17 @@ class AudioTimestampDiagnosticTests(unittest.TestCase):
             )
         )
         self.assertFalse(_safe_audio_timestamp_correction("Failed to open segment 2"))
+
+
+class FullDecodeValidationTests(unittest.TestCase):
+    @patch("anicat.hls_downloader.subprocess.run")
+    def test_zero_exit_with_decode_error_is_rejected(self, run):
+        from anicat.hls_downloader import _validate_output
+
+        def fail(command, **kwargs):
+            kwargs["stderr"].write(b"error while decoding MB 32 47")
+            return subprocess.CompletedProcess(command, 0)
+
+        run.side_effect = fail
+        with self.assertRaisesRegex(DownloadError, "error while decoding"):
+            _validate_output("ffmpeg", Path("video.mp4"), 2)
