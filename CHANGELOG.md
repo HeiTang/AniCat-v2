@@ -4,10 +4,13 @@
 
 ### Added
 
+- 新增 `anime1.cc` 與 `anime1.in` 的 HLS 單集解析、全集分頁展開及 FFmpeg MP4 輸出。
 - 支援 `anime1.pw` 單集、`?cat=` 分類頁與 slug 分類頁下載；此來源直接解析頁面 MP4 source，沿用現有 Range 續傳下載流程。
 
 ### Changed
 
+- HLS 來源的音訊改用 AAC 重編碼並同步時間戳，以處理上游分段的非遞增 DTS。
+- HLS 下載在產生非空暫存 MP4 前不會替換既有成品。
 - `anime1.pw` 頁面解析改用 GET 抓取 HTML，避免依賴 WordPress / Cloudflare 對 POST 頁面請求的相容行為。
 - direct video parser 會優先選擇 `video/mp4` source；若頁面提供多個 source 會記錄 warning。
 

@@ -23,8 +23,8 @@ AniCat-v2 是一個專注於 Anime1 下載體驗的 CLI 工具。它可以把單
     |---|---|---|---|
     | `anime1.me` | `https://anime1.me/15651` | `https://anime1.me/category/...` | 支援 |
     | `anime1.pw` | `https://anime1.pw/349` | `https://anime1.pw/?cat=60`、`https://anime1.pw/<slug>` | 支援 |
-    | `anime1.cc` | HLS / m3u8 | HLS / m3u8 | 尚未支援 |
-    | `anime1.in` | HLS / m3u8 | HLS / m3u8 | 尚未支援 |
+    | `anime1.cc` | 三段數字單集網址 | 數字 ID 全集網址 | 開發版 HLS，需 FFmpeg |
+    | `anime1.in` | 含集數的 slug 網址 | 作品 slug 全集網址 | 開發版 HLS，需 FFmpeg |
 
 
 ## 安裝方式
@@ -56,6 +56,20 @@ anicat --help
     python3 -m pip install .
     anicat --help
     ```
+
+## HLS 來源（開發版）
+
+`anime1.cc` 與 `anime1.in` 使用 HLS，需要先安裝 [FFmpeg](https://ffmpeg.org/download.html)，
+並確認 `ffmpeg -version` 可執行。macOS 使用 Homebrew 時可執行 `brew install ffmpeg`。
+HLS 下載不使用 direct MP4 的 `.part` 續傳；影像直接複製，音訊轉成 AAC 並同步時間戳。
+只有 FFmpeg 成功產生非空 MP4 後才會替換目的檔。
+
+```bash
+anicat https://anime1.cc/681899930-01-0142
+anicat https://anime1.in/2023-xian-ni-10142000
+```
+
+HLS 完成或失敗後重新執行會從頭下載；`--retries` 目前不會重試 FFmpeg 工作階段。
 
 ## 使用方法
 

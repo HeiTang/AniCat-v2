@@ -41,8 +41,14 @@ jobs:
       - name: Type check
         run: uv run pyright
 
+      - name: Install FFmpeg for HLS runtime tests
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       - name: Run tests
         run: uv run python -m unittest
 
       - name: Compile sources
         run: uv run python -m compileall src/anicat tests
+
+      - name: Build distributions
+        run: uv build --no-sources
