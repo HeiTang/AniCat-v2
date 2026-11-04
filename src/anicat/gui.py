@@ -442,7 +442,8 @@ def main() -> int:
         clear_queue()
         state["busy"] = True
         state["error"] = False
-        start_button.configure(state="disabled", text="下載中…")
+        start_button.configure(text="下載中…")
+        style_start()
         status_text.set("正在連線與解析…")
         Thread(
             target=run_download,
@@ -450,13 +451,22 @@ def main() -> int:
             daemon=True,
         ).start()
 
+    def style_start(*, hover: bool = False) -> None:
+        busy = state["busy"]
+        start_button.configure(
+            bg=COLORS["accent_dark"] if busy or hover else COLORS["accent"],
+            fg="#D9C1B8" if busy else "#FFFFFF",
+            cursor="" if busy else "hand2",
+        )
+
     def poll() -> None:
         try:
             while True:
                 event = events.get_nowait()
                 if event is None:
                     state["busy"] = False
-                    start_button.configure(state="normal", text="開始下載")
+                    start_button.configure(text="開始下載")
+                    style_start()
                     status_text.set("這批工作已結束" if not state["error"] else "有工作需要處理")
                 else:
                     handle(event)
@@ -470,22 +480,28 @@ def main() -> int:
     label(
         actions, "按下後會先解析網址，再加入右側佇列。", font=small_font, fg=COLORS["muted"]
     ).grid(row=0, column=0, sticky="w")
-    start_button = tk.Button(
+    start_button = tk.Label(
         actions,
         text="開始下載",
-        command=start,
         font=("Helvetica Neue", 11, "bold"),
         bg=COLORS["accent"],
         fg="#FFFFFF",
-        activebackground=COLORS["accent_dark"],
-        activeforeground="#FFFFFF",
-        disabledforeground="#D9C1B8",
         relief="flat",
         padx=20,
         pady=11,
         cursor="hand2",
+        takefocus=True,
+        highlightthickness=2,
+        highlightbackground=COLORS["accent"],
+        highlightcolor=COLORS["ink"],
     )
     start_button.grid(row=0, column=1, sticky="e")
+    start_button.bind("<Button-1>", lambda _event: start())
+    start_button.bind("<Return>", lambda _event: start())
+    start_button.bind("<space>", lambda _event: start())
+    start_button.bind("<Enter>", lambda _event: style_start(hover=True))
+    start_button.bind("<Leave>", lambda _event: style_start())
+    style_start()
 
     def close() -> None:
         if state["busy"]:
