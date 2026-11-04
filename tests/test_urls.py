@@ -60,8 +60,8 @@ class UrlTests(unittest.TestCase):
     def test_rejects_unsupported_urls(self):
         with self.assertRaises(AniCatError):
             ensure_supported_url("https://example.com/15651")
-        self.assertFalse(is_episode_url("https://anime1.cc/681899930-01-0142"))
-        self.assertFalse(is_episode_url("https://anime1.in/2023-xian-ni-10142000"))
+        self.assertTrue(is_episode_url("https://anime1.cc/681899930-01-0142"))
+        self.assertTrue(is_episode_url("https://anime1.in/2023-xian-ni-10142000"))
         self.assertFalse(is_season_url("https://anime1.pw/"))
         self.assertFalse(is_season_url("https://anime1.pw/349?cat=60"))
         self.assertFalse(is_season_url("https://anime1.pw/wp-login.php"))

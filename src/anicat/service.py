@@ -10,6 +10,7 @@ from .client import Anime1Client
 from .downloader import VideoSource, download_episode
 from .errors import AniCatError
 from .extractor import Anime1Extractor, EpisodeSource
+from .hls_downloader import download_hls_episode
 from .models import DownloadProgressEvent, JobReport
 from .options import DownloadOptions
 from .urls import dedupe, ensure_supported_url, is_episode_url, is_season_url
@@ -153,16 +154,26 @@ class AniCatService:
 
         try:
             episode = extractor.episode(url)
-            result = download_episode(
-                client,
-                episode,
-                self.options.output_dir,
-                chunk_size=self.options.safe_chunk_size,
-                resume=self.options.resume,
-                overwrite=self.options.overwrite,
-                progress=on_progress,
-                stream_retries=self.options.retries,
-            )
+            if episode.stream_type == "hls":
+                result = download_hls_episode(
+                    episode,
+                    self.options.output_dir,
+                    overwrite=self.options.overwrite,
+                    progress=on_progress,
+                    timeout=self.options.timeout,
+                    retries=self.options.retries,
+                )
+            else:
+                result = download_episode(
+                    client,
+                    episode,
+                    self.options.output_dir,
+                    chunk_size=self.options.safe_chunk_size,
+                    resume=self.options.resume,
+                    overwrite=self.options.overwrite,
+                    progress=on_progress,
+                    stream_retries=self.options.retries,
+                )
             LOGGER.info("%s episode: %s", result.status.title(), result.episode.title)
             return JobReport(url=url, result=result)
         except AniCatError as error:

@@ -12,6 +12,7 @@ dependencies = [
     "beautifulsoup4 (>=4.14.3,<5.0.0)",
     "rich (>=15.0.0,<16.0.0)",
     "imageio-ffmpeg>=0.8.1,<0.9",
+    "cryptography (>=46.0.7,<51.0.0)"
 ]
 
 [project.scripts]
