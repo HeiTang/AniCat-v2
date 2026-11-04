@@ -8,6 +8,7 @@ from queue import Empty, Queue
 from threading import Thread
 from typing import Literal
 
+from .ffmpeg import find_ffmpeg
 from .models import JobReport
 from .options import DownloadOptions
 from .service import AniCatService
@@ -20,7 +21,7 @@ GuiItemState = Literal["queued", "done", "skipped", "error"]
 class GuiEvent:
     """Thread-to-UI message; no guessed progress is sent."""
 
-    kind: Literal["status", "queue", "item"]
+    kind: Literal["status", "queue", "item", "tool"]
     text: str = ""
     url: str = ""
     state: GuiItemState | None = None
@@ -32,6 +33,11 @@ def run_download(urls: list[str], output: Path, events: Queue[GuiEvent | None]) 
     """Run off the UI thread and send only observable state changes."""
 
     try:
+        events.put(GuiEvent("status", text="正在檢查影片處理工具…"))
+        if find_ffmpeg() is None:
+            events.put(GuiEvent("tool", text="missing"))
+            return
+        events.put(GuiEvent("tool", text="ready"))
         events.put(GuiEvent("status", text="正在整理網址…"))
         service = AniCatService(DownloadOptions(output))
         episodes = service.collect_episode_urls(urls)
@@ -402,7 +408,14 @@ def main() -> int:
         state["error"] = False
 
     def handle(event: GuiEvent) -> None:
-        if event.kind == "status":
+        if event.kind == "tool":
+            if event.text == "missing":
+                state["error"] = True
+                tool_status.set("影片處理工具未就緒，尚未開始下載")
+                show_tool_help()
+            else:
+                tool_status.set("影片處理工具：已就緒")
+        elif event.kind == "status":
             status_text.set(event.text)
             if event.detail:
                 state["error"] = True
@@ -474,12 +487,78 @@ def main() -> int:
             pass
         root.after(100, poll)
 
+    def show_tool_help() -> None:
+        import webbrowser
+
+        dialog = tk.Toplevel(root)
+        dialog.title("準備影片處理工具")
+        dialog.configure(bg=COLORS["paper"])
+        dialog.transient(root)
+        panel = tk.Frame(dialog, bg=COLORS["paper"], padx=24, pady=22)
+        panel.pack(fill="both", expand=True)
+        label(panel, "影片處理工具 FFmpeg", font=title_font).pack(anchor="w")
+        label(
+            panel,
+            "一般安裝會一起準備好，不需要另外設定。\n"
+            "若檢查失敗，下載不會開始。請先在專案資料夾執行下方修復指令。",
+            wraplength=470,
+            justify="left",
+        ).pack(anchor="w", pady=(12, 14))
+        command = "uv sync --locked --reinstall-package imageio-ffmpeg"
+        command_text = tk.Text(panel, height=2, width=58, font=mono_font, wrap="word")
+        command_text.insert("1.0", command)
+        command_text.configure(state="disabled")
+        command_text.pack(fill="x")
+
+        def copy_command() -> None:
+            root.clipboard_clear()
+            root.clipboard_append(command)
+            copy_button.configure(text="已複製")
+
+        buttons = tk.Frame(panel, bg=COLORS["paper"])
+        buttons.pack(fill="x", pady=(14, 12))
+        copy_button = tk.Button(buttons, text="複製修復指令", command=copy_command)
+        copy_button.pack(side="left")
+        tk.Button(
+            buttons,
+            text="其他安裝方式",
+            command=lambda: webbrowser.open("https://ffmpeg.org/download.html"),
+        ).pack(side="left", padx=8)
+        tk.Button(buttons, text="關閉", command=dialog.destroy).pack(side="right")
+        label(
+            panel,
+            "完成後關閉此說明，再按「開始下載」，程式會重新檢查。",
+            font=small_font,
+            wraplength=470,
+            justify="left",
+        ).pack(anchor="w")
+        dialog.bind("<Escape>", lambda _event: dialog.destroy())
+        copy_button.focus_set()
+
     actions = tk.Frame(form, bg=COLORS["paper"])
     actions.grid(row=2, column=0, sticky="ew", pady=(18, 0))
     actions.grid_columnconfigure(0, weight=1)
-    label(
-        actions, "按下後會先解析網址，再加入右側佇列。", font=small_font, fg=COLORS["muted"]
-    ).grid(row=0, column=0, sticky="w")
+    tool_info = tk.Frame(actions, bg=COLORS["paper"])
+    tool_info.grid(row=0, column=0, sticky="w")
+    tool_status = tk.StringVar(value="開始前會自動檢查影片處理工具")
+    label(tool_info, "", textvariable=tool_status, font=small_font, fg=COLORS["muted"]).pack(
+        anchor="w"
+    )
+    tool_help = label(
+        tool_info,
+        "工具安裝說明",
+        font=("Helvetica Neue", 9, "underline"),
+        fg=COLORS["accent"],
+        cursor="hand2",
+        takefocus=True,
+        highlightthickness=1,
+        highlightbackground=COLORS["paper"],
+        highlightcolor=COLORS["accent"],
+    )
+    tool_help.pack(anchor="w", pady=(4, 0))
+    tool_help.bind("<Button-1>", lambda _event: show_tool_help())
+    tool_help.bind("<Return>", lambda _event: show_tool_help())
+    tool_help.bind("<space>", lambda _event: show_tool_help())
     start_button = tk.Label(
         actions,
         text="開始下載",

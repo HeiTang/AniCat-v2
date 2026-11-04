@@ -70,6 +70,20 @@ anicat-gui
 它需要 Python Tk 支援；若系統沒有 Tk，請改用 CLI。支援來源與 CLI 相同，
 目前是 `anime1.me` 與 `anime1.pw`。
 
+一般安裝會透過 `imageio-ffmpeg` 一起安裝影片處理工具 FFmpeg，不需要另外設定 PATH。
+桌面介面會在開始下載前檢查工具是否能正常執行；系統已有可用的 FFmpeg 時優先沿用，
+否則使用套件內附的版本。檢查失敗會先顯示安裝說明，不會啟動下載。
+可隨時點「工具安裝說明」複製修復指令：
+
+```bash
+# 在專案資料夾執行
+uv sync --locked --reinstall-package imageio-ffmpeg
+```
+
+常見 macOS、Windows、Linux 平台有內附執行檔的 wheel；未提供對應 wheel 的平台
+仍需自行安裝 FFmpeg。工具來自 [imageio-ffmpeg](https://github.com/imageio/imageio-ffmpeg)，
+其套件與內附 FFmpeg 的授權資訊由上游提供。
+
 ## 使用方法
 
 ```bash
