@@ -39,7 +39,7 @@
 
 每筆 `record_sha256` 為其餘欄位以排序鍵 JSON 序列化後的雜湊；`local_evidence_sha256` 是本機原始 evidence（含路徑）指紋。雜湊是本次取得資料的稽核證據，不是上游提供的可信參考校驗值。
 
-前輪五部明文上游作品通過的版本仍為 `af8b56e`，本輪未宣稱把它們全部以 AES HEAD 重跑。新的明文／加密 localhost 回歸都由本輪 CI 執行。SAMPLE-AES、非 identity KEYFORMAT、fMP4、byte-range、LL-HLS、GAP 與 I-frame-only 仍明確拒絕。
+本 AES 驗收批次只跑上述兩部；後續五部明文已以相同 runtime 的 `26afffa` 完整重跑並通過，見[明文回歸驗收](HLS_CLEAR_REGRESSION_2026-11-04.md)。新的明文／加密 localhost 回歸都由本輪 CI 執行。SAMPLE-AES、非 identity KEYFORMAT、fMP4、byte-range、LL-HLS、GAP 與 I-frame-only 仍明確拒絕。
 
 完整性相對於當次 playlist 快照，不證明上游從未省略內容。未做人工全片影音同步審查、整季下載或 Windows／Linux 真實上游驗收。上游內容可能變動，本次通過不等於修復同一份歷史損壞資料。
 
