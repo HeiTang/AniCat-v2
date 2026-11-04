@@ -144,6 +144,20 @@ def _duration_matches(expected: float, actual: float) -> bool:
     return abs(expected - actual) < tolerance
 
 
+def _safe_audio_timestamp_correction(line: str) -> bool:
+    """Allow only sub-100ms AAC mux rounding; reject skipped segments and corruption."""
+
+    match = re.search(
+        r"Non-monotonous DTS in output stream 0:1; "
+        r"previous: (\d+), current: (\d+); changing to (\d+)",
+        line,
+    )
+    if match is None:
+        return False
+    previous, current, corrected = map(int, match.groups())
+    return 0 <= previous - current <= 4800 and corrected == previous + 1
+
+
 def download_hls_episode(
     episode: Episode,
     output_dir: Path,
@@ -191,8 +205,9 @@ def download_hls_episode(
             "-nostdin",
             "-hide_banner",
             "-loglevel",
-            "error",
-            "-xerror",
+            "warning",
+            "-err_detect",
+            "explode",
             "-nostats",
             "-progress",
             "pipe:1",
@@ -213,8 +228,12 @@ def download_hls_episode(
             # Some providers repeat audio timestamps at HLS discontinuities.
             "-c:a",
             "aac",
+            "-ar",
+            "48000",
+            "-ac",
+            "2",
             "-af",
-            "asetpts=N/SR/TB,aresample=async=1:first_pts=0",
+            "aresample=48000:async=1",
             "-movflags",
             "+faststart",
             "-f",
@@ -231,13 +250,20 @@ def download_hls_episode(
                 except OSError as error:
                     raise DownloadError(f"could not start FFmpeg: {error}") from error
                 else:
-                    diagnostics.seek(0, 2)
-                    diagnostics.seek(max(0, diagnostics.tell() - 2000))
-                    detail = diagnostics.read().decode("utf-8", errors="replace").strip()
+                    diagnostics.seek(0)
+                    detail = ""
+                    for raw_line in diagnostics:
+                        line = raw_line.decode("utf-8", errors="replace").strip()
+                        if line and not _safe_audio_timestamp_correction(line):
+                            detail = line[:2000]
+                            break
 
             duration = _progress_duration(result.stdout)
             complete = (
-                result.returncode == 0 and temporary.is_file() and temporary.stat().st_size > 0
+                result.returncode == 0
+                and not detail
+                and temporary.is_file()
+                and temporary.stat().st_size > 0
             )
             if complete and expected_duration is not None:
                 complete = duration is not None and _duration_matches(expected_duration, duration)
@@ -250,7 +276,7 @@ def download_hls_episode(
             if complete:
                 break
 
-            if result.returncode:
+            if result.returncode or detail:
                 last_error = f"FFmpeg failed ({result.returncode}): {detail}"
             elif duration is None or expected_duration is None:
                 last_error = "FFmpeg produced no video"

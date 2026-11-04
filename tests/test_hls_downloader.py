@@ -126,3 +126,42 @@ class HlsDownloaderTests(unittest.TestCase):
         with self.assertRaisesRegex(DownloadError, "duration mismatch"):
             download_hls_episode(self.episode, self.output, retries=0)
         self.assertFalse((self.output / "show.mp4").exists())
+
+    @patch("anicat.hls_downloader.shutil.which", return_value="/bin/ffmpeg")
+    @patch("anicat.hls_downloader.subprocess.run")
+    def test_zero_exit_with_errors_preserves_existing_file(self, run, _which):
+        path = self.output / "show.mp4"
+        path.write_bytes(b"existing")
+
+        def finish(command, **kwargs):
+            Path(command[-1]).write_bytes(b"damaged")
+            kwargs["stderr"].write(b"Error when loading segment 2")
+            return subprocess.CompletedProcess(command, 0)
+
+        run.side_effect = finish
+        with self.assertRaisesRegex(DownloadError, "Error when loading segment"):
+            download_hls_episode(self.episode, self.output, overwrite=True, retries=0)
+        self.assertEqual(path.read_bytes(), b"existing")
+
+
+class AudioTimestampDiagnosticTests(unittest.TestCase):
+    def test_only_small_audio_mux_correction_is_allowed(self):
+        from anicat.hls_downloader import _safe_audio_timestamp_correction
+
+        prefix = "[mp4] Non-monotonous DTS in output stream "
+        self.assertTrue(
+            _safe_audio_timestamp_correction(
+                prefix + "0:1; previous: 18032661, current: 18030288; changing to 18032662."
+            )
+        )
+        self.assertFalse(
+            _safe_audio_timestamp_correction(
+                prefix + "0:1; previous: 18032661, current: 0; changing to 18032662."
+            )
+        )
+        self.assertFalse(
+            _safe_audio_timestamp_correction(
+                prefix + "0:0; previous: 20, current: 19; changing to 21."
+            )
+        )
+        self.assertFalse(_safe_audio_timestamp_correction("Failed to open segment 2"))
