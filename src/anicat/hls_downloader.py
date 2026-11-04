@@ -161,11 +161,17 @@ def _duration_matches(expected: float, actual: float) -> bool:
 def _safe_audio_timestamp_correction(line: str) -> bool:
     """Allow only sub-100ms AAC mux rounding; reject skipped segments and corruption."""
 
-    match = re.search(
+    legacy = re.search(
         r"Non-monotonous DTS in output stream 0:1; "
         r"previous: (\d+), current: (\d+); changing to (\d+)",
         line,
     )
+    modern = re.search(
+        r"\[aost#0:1/copy(?:\s+@[^\]]+)?\]\s+Non-monotonic DTS; "
+        r"previous: (\d+), current: (\d+); changing to (\d+)",
+        line,
+    )
+    match = legacy or modern
     if match is None:
         return False
     previous, current, corrected = map(int, match.groups())

@@ -173,9 +173,34 @@ class AudioTimestampDiagnosticTests(unittest.TestCase):
                 prefix + "0:1; previous: 18032661, current: 18030288; changing to 18032662."
             )
         )
+        self.assertTrue(
+            _safe_audio_timestamp_correction(
+                "[aost#0:1/copy @ 0x123] Non-monotonic DTS; "
+                "previous: 98304, current: 98064; changing to 98305. "
+                "This may result in incorrect timestamps in the output file."
+            )
+        )
         self.assertFalse(
             _safe_audio_timestamp_correction(
                 prefix + "0:1; previous: 18032661, current: 0; changing to 18032662."
+            )
+        )
+        self.assertFalse(
+            _safe_audio_timestamp_correction(
+                "[aost#0:1/copy @ 0x123] Non-monotonic DTS; "
+                "previous: 98304, current: 90000; changing to 98305."
+            )
+        )
+        self.assertFalse(
+            _safe_audio_timestamp_correction(
+                "[vost#0:0/copy @ 0x123] Non-monotonic DTS; "
+                "previous: 98304, current: 98064; changing to 98305."
+            )
+        )
+        self.assertFalse(
+            _safe_audio_timestamp_correction(
+                "[aost#0:1 @ 0x123] Non-monotonic DTS; "
+                "previous: 98304, current: 98064; changing to 98305."
             )
         )
         self.assertFalse(
