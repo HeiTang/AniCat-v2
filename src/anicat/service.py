@@ -161,6 +161,7 @@ class AniCatService:
                     overwrite=self.options.overwrite,
                     progress=on_progress,
                     timeout=self.options.timeout,
+                    retries=self.options.retries,
                 )
             else:
                 result = download_episode(

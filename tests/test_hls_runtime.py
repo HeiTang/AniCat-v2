@@ -43,9 +43,15 @@ class HlsRuntimeTests(unittest.TestCase):
                     "-c:a",
                     "aac",
                     "-t",
-                    "1",
+                    "3",
                     "-c:v",
                     "libx264",
+                    "-g",
+                    "10",
+                    "-keyint_min",
+                    "10",
+                    "-sc_threshold",
+                    "0",
                     "-f",
                     "hls",
                     "-hls_time",
@@ -66,6 +72,8 @@ class HlsRuntimeTests(unittest.TestCase):
                 episode = Episode(origin, "fixture", f"{origin}/index.m3u8", stream_type="hls")
                 result = download_hls_episode(episode, root / "output", timeout=5)
                 self.assertGreater(result.bytes_written, 0)
+                segments = sorted(root.glob("*.ts"))
+                self.assertGreaterEqual(len(segments), 3)
                 subprocess.run(
                     [
                         executable,
@@ -75,6 +83,10 @@ class HlsRuntimeTests(unittest.TestCase):
                         "-xerror",
                         "-i",
                         str(result.path),
+                        "-vsync",
+                        "0",
+                        "-enc_time_base",
+                        "-1",
                         "-f",
                         "null",
                         "-",
@@ -83,12 +95,24 @@ class HlsRuntimeTests(unittest.TestCase):
                     capture_output=True,
                     timeout=30,
                 )
-                # A missing source segment must not replace a completed output.
+                # A missing middle source segment must not replace a completed output.
                 before = result.path.read_bytes()
-                for segment in root.glob("*.ts"):
-                    segment.unlink()
+                middle = segments[len(segments) // 2]
+                middle_bytes = middle.read_bytes()
+                middle.unlink()
                 with self.assertRaises(DownloadError):
-                    download_hls_episode(episode, root / "output", timeout=5, overwrite=True)
+                    download_hls_episode(
+                        episode, root / "output", timeout=5, overwrite=True, retries=1
+                    )
+                self.assertEqual(result.path.read_bytes(), before)
+                self.assertEqual(list((root / "output").iterdir()), [result.path])
+
+                # A truncated middle segment must also fail instead of producing a gap.
+                middle.write_bytes(middle_bytes[:64])
+                with self.assertRaises(DownloadError):
+                    download_hls_episode(
+                        episode, root / "output", timeout=5, overwrite=True, retries=1
+                    )
                 self.assertEqual(result.path.read_bytes(), before)
                 self.assertEqual(list((root / "output").iterdir()), [result.path])
             finally:
