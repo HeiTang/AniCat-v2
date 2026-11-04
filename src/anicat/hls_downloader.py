@@ -2,7 +2,6 @@
 
 import logging
 import re
-import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -14,6 +13,7 @@ import requests
 
 from .downloader import ProgressCallback, target_path
 from .errors import DownloadError
+from .ffmpeg import find_ffmpeg
 from .hls import validate_playlist_url
 from .hls_segments import (
     SegmentSpec,
@@ -390,6 +390,26 @@ def _remux_groups(
     return error
 
 
+def _decode_timestamp_options(executable: str) -> tuple[str, ...]:
+    """Use FFmpeg 9's replacement for flags removed from older releases."""
+
+    try:
+        version = subprocess.run(
+            [executable, "-version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        version = None
+    major_match = re.search(
+        rb"ffmpeg version (\d+)", version.stdout if version is not None else b""
+    )
+    if major_match is not None and int(major_match.group(1)) >= 9:
+        return ("-fps_mode", "passthrough", "-enc_time_base", "demux")
+    return ("-vsync", "0", "-enc_time_base", "-1")
+
+
 def _validate_output(executable: str, path: Path, duration: float | None) -> None:
     """Decode the entire candidate before treating TS discontinuities as recoverable."""
 
@@ -401,10 +421,7 @@ def _validate_output(executable: str, path: Path, duration: float | None) -> Non
         "-xerror",
         "-i",
         str(path),
-        "-vsync",
-        "0",
-        "-enc_time_base",
-        "-1",
+        *_decode_timestamp_options(executable),
         "-f",
         "null",
         "-",
@@ -441,9 +458,12 @@ def download_hls_episode(
         size = path.stat().st_size
         return DownloadResult(episode, path, "skipped", size, size)
     playlist = validate_playlist_url(episode.stream_url, episode.page_url)
-    executable = shutil.which("ffmpeg")
+    executable = find_ffmpeg()
     if executable is None:
-        raise DownloadError("HLS downloads require FFmpeg. Install ffmpeg and add it to PATH.")
+        raise DownloadError(
+            "FFmpeg is unavailable. Run `uv sync --locked --reinstall-package imageio-ffmpeg` "
+            "or install FFmpeg manually; see the GUI tool installation guide."
+        )
     if timeout <= 0:
         raise ValueError("timeout must be greater than 0")
     if retries < 0:

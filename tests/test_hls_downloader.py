@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from anicat.errors import DownloadError
-from anicat.hls_downloader import HlsManifest, download_hls_episode
+from anicat.hls_downloader import HlsManifest, _decode_timestamp_options, download_hls_episode
 from anicat.models import Episode
 
 
@@ -22,12 +22,12 @@ class HlsDownloaderTests(unittest.TestCase):
         output_validation.start()
         self.addCleanup(output_validation.stop)
 
-    @patch("anicat.hls_downloader.shutil.which", return_value=None)
+    @patch("anicat.hls_downloader.find_ffmpeg", return_value=None)
     def test_missing_ffmpeg(self, _which):
-        with self.assertRaisesRegex(DownloadError, "require FFmpeg"):
+        with self.assertRaisesRegex(DownloadError, "FFmpeg is unavailable"):
             download_hls_episode(self.episode, self.output)
 
-    @patch("anicat.hls_downloader.shutil.which", return_value="/bin/ffmpeg")
+    @patch("anicat.hls_downloader.find_ffmpeg", return_value="/bin/ffmpeg")
     @patch("anicat.hls_downloader.subprocess.run")
     def test_failure_preserves_existing_output_and_cleans_temporary(self, run, _which):
         path = self.output / "show.mp4"
@@ -38,7 +38,7 @@ class HlsDownloaderTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), b"old")
         self.assertEqual(list(self.output.iterdir()), [path])
 
-    @patch("anicat.hls_downloader.shutil.which", return_value="/bin/ffmpeg")
+    @patch("anicat.hls_downloader.find_ffmpeg", return_value="/bin/ffmpeg")
     @patch("anicat.hls_downloader.subprocess.run")
     def test_success_replaces_output_only_when_complete(self, run, _which):
         def finish(command, **kwargs):
@@ -57,7 +57,7 @@ class HlsDownloaderTests(unittest.TestCase):
         self.assertEqual(download_hls_episode(self.episode, self.output).status, "skipped")
         run.assert_not_called()
 
-    @patch("anicat.hls_downloader.shutil.which", return_value="/bin/ffmpeg")
+    @patch("anicat.hls_downloader.find_ffmpeg", return_value="/bin/ffmpeg")
     @patch("anicat.hls_downloader.subprocess.run")
     def test_empty_success_is_rejected(self, run, _which):
         run.return_value = subprocess.CompletedProcess([], 0)
@@ -65,7 +65,7 @@ class HlsDownloaderTests(unittest.TestCase):
             download_hls_episode(self.episode, self.output, retries=3)
         self.assertEqual(list(self.output.iterdir()), [])
 
-    @patch("anicat.hls_downloader.shutil.which", return_value="/bin/ffmpeg")
+    @patch("anicat.hls_downloader.find_ffmpeg", return_value="/bin/ffmpeg")
     @patch("anicat.hls_downloader.subprocess.run")
     def test_failed_session_is_retried_and_replaces_only_after_success(self, run, _which):
         def finish(command, **kwargs):
@@ -79,7 +79,7 @@ class HlsDownloaderTests(unittest.TestCase):
         self.assertEqual(run.call_count, 2)
         self.assertEqual(result.path.read_bytes(), b"video")
 
-    @patch("anicat.hls_downloader.shutil.which", return_value="/bin/ffmpeg")
+    @patch("anicat.hls_downloader.find_ffmpeg", return_value="/bin/ffmpeg")
     @patch("anicat.hls_downloader.subprocess.run")
     def test_exhausted_retries_preserve_existing_output(self, run, _which):
         path = self.output / "show.mp4"
@@ -90,13 +90,13 @@ class HlsDownloaderTests(unittest.TestCase):
         self.assertEqual(run.call_count, 2)
         self.assertEqual(path.read_bytes(), b"old")
 
-    @patch("anicat.hls_downloader.shutil.which", return_value="/bin/ffmpeg")
+    @patch("anicat.hls_downloader.find_ffmpeg", return_value="/bin/ffmpeg")
     def test_negative_retries_are_rejected(self, _which):
         with self.assertRaisesRegex(ValueError, "retries"):
             download_hls_episode(self.episode, self.output, retries=-1)
 
     @patch("anicat.hls_downloader._validate_hls_sources")
-    @patch("anicat.hls_downloader.shutil.which", return_value="/bin/ffmpeg")
+    @patch("anicat.hls_downloader.find_ffmpeg", return_value="/bin/ffmpeg")
     @patch("anicat.hls_downloader.subprocess.run")
     def test_preflight_timeout_is_retried(self, run, _which, validate):
         validate.side_effect = [
@@ -118,7 +118,7 @@ class HlsDownloaderTests(unittest.TestCase):
         "anicat.hls_downloader._validate_hls_sources",
         return_value=HlsManifest("https://cdn.example/index.m3u8", 3, 2),
     )
-    @patch("anicat.hls_downloader.shutil.which", return_value="/bin/ffmpeg")
+    @patch("anicat.hls_downloader.find_ffmpeg", return_value="/bin/ffmpeg")
     @patch("anicat.hls_downloader.subprocess.run")
     def test_duration_mismatch_is_rejected(self, run, _which, _validate):
         def finish(command, **kwargs):
@@ -130,7 +130,7 @@ class HlsDownloaderTests(unittest.TestCase):
             download_hls_episode(self.episode, self.output, retries=0)
         self.assertFalse((self.output / "show.mp4").exists())
 
-    @patch("anicat.hls_downloader.shutil.which", return_value="/bin/ffmpeg")
+    @patch("anicat.hls_downloader.find_ffmpeg", return_value="/bin/ffmpeg")
     @patch("anicat.hls_downloader.subprocess.run")
     def test_zero_exit_with_errors_preserves_existing_file(self, run, _which):
         path = self.output / "show.mp4"
@@ -147,7 +147,7 @@ class HlsDownloaderTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), b"existing")
 
     @patch("anicat.hls_downloader._validate_output", side_effect=DownloadError("corrupt frame"))
-    @patch("anicat.hls_downloader.shutil.which", return_value="/bin/ffmpeg")
+    @patch("anicat.hls_downloader.find_ffmpeg", return_value="/bin/ffmpeg")
     @patch("anicat.hls_downloader.subprocess.run")
     def test_full_decode_failure_preserves_completed_file(self, run, _which, validate):
         path = self.output / "show.mp4"
@@ -161,6 +161,25 @@ class HlsDownloaderTests(unittest.TestCase):
         with self.assertRaisesRegex(DownloadError, "corrupt frame"):
             download_hls_episode(self.episode, self.output, overwrite=True, retries=0)
         self.assertEqual(path.read_bytes(), b"original")
+
+
+class FfmpegCompatibilityTests(unittest.TestCase):
+    @patch("anicat.hls_downloader.subprocess.run")
+    def test_decode_timestamp_options_follow_ffmpeg_major(self, run):
+        run.return_value = subprocess.CompletedProcess(
+            [], 0, stdout=b"ffmpeg version 4.4 Copyright (c) 2000-2021"
+        )
+        self.assertEqual(
+            _decode_timestamp_options("/old/ffmpeg"),
+            ("-vsync", "0", "-enc_time_base", "-1"),
+        )
+        run.return_value = subprocess.CompletedProcess(
+            [], 0, stdout=b"ffmpeg version 9.0 Copyright (c) 2000-2026"
+        )
+        self.assertEqual(
+            _decode_timestamp_options("/new/ffmpeg"),
+            ("-fps_mode", "passthrough", "-enc_time_base", "demux"),
+        )
 
 
 class AudioTimestampDiagnosticTests(unittest.TestCase):
@@ -225,6 +244,8 @@ class FullDecodeValidationTests(unittest.TestCase):
         from anicat.hls_downloader import _validate_output
 
         def fail(command, **kwargs):
+            if command[-1] == "-version":
+                return subprocess.CompletedProcess(command, 0, stdout=b"ffmpeg version 4.4\n")
             kwargs["stderr"].write(b"error while decoding MB 32 47")
             return subprocess.CompletedProcess(command, 0)
 

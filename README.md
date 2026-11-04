@@ -59,8 +59,16 @@ anicat --help
 
 ## HLS 來源（開發版）
 
-`anime1.cc` 與 `anime1.in` 使用 HLS，需要先安裝 [FFmpeg](https://ffmpeg.org/download.html)，
-並確認 `ffmpeg -version` 可執行。macOS 使用 Homebrew 時可執行 `brew install ffmpeg`。
+`anime1.cc` 與 `anime1.in` 使用 HLS，需要可執行的 [FFmpeg](https://ffmpeg.org/download.html)。
+程式會先使用 PATH 中通過 `ffmpeg -version` 檢查的系統版本；找不到時自動改用
+`imageio-ffmpeg` 內附版本，不需要另外設定 PATH。若兩者都無法執行，請在專案資料夾修復依賴：
+
+```bash
+uv sync --locked --reinstall-package imageio-ffmpeg
+```
+
+未提供對應平台 wheel 時，才需要自行安裝 FFmpeg（macOS 使用 Homebrew 可執行
+`brew install ffmpeg`）。
 HLS 下載不使用 direct MP4 的 `.part` 續傳；影像直接複製，音訊轉成 AAC 並同步時間戳。
 只有 FFmpeg 成功產生非空 MP4 後才會替換目的檔。
 下載前會固定一次已結束的 media playlist snapshot，並把每個 segment 完整抓到暫存目錄；

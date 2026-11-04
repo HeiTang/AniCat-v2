@@ -35,7 +35,7 @@ class HlsServiceTests(unittest.TestCase):
                 self.assertEqual(hls.call_args.args[0].stream_type, "hls")
                 direct.assert_not_called()
 
-    @patch("anicat.hls_downloader.shutil.which", return_value=None)
+    @patch("anicat.hls_downloader.find_ffmpeg", return_value=None)
     def test_missing_ffmpeg_is_reported_as_recoverable_failure(self, _which):
         client = Mock()
         client.get_page.return_value = (
@@ -47,5 +47,5 @@ class HlsServiceTests(unittest.TestCase):
                 DownloadOptions(Path(directory)), client_factory=Mock(return_value=client)
             )
             report = service.download_one("https://anime1.cc/681899930-01-0142")
-            self.assertIn("require FFmpeg", report.error or "")
+            self.assertIn("FFmpeg is unavailable", report.error or "")
             self.assertIsNone(report.result)
