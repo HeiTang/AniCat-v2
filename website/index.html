@@ -9,13 +9,19 @@
     />
     <meta name="theme-color" content="#f4f1e9" />
     <title>AniCat — 把想看的，留在本機。</title>
-    <link rel="icon" href="data:," />
+    <link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="48x48" href="assets/favicon-48.png" />
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <a class="skip" href="#main">跳到主要內容</a>
     <header class="wrap">
-      <a class="brand" href="#">AniCat<span> / 動畫下載工具</span></a>
+      <a class="brand" href="#">
+        <img class="pixel-art" src="assets/anicat-logo-mark.png" alt="" width="44" height="32" />
+        AniCat<span> / 動畫下載工具</span>
+      </a>
       <nav aria-label="主要導覽">
         <a href="#start">開始使用</a><a href="#sources">支援來源</a
         ><a href="https://github.com/HeiTang/AniCat-v2">GitHub ↗</a>
@@ -37,23 +43,32 @@
             目前先用終端機操作 · 需要 Python 3.12+ · GPL-3.0 授權文件
           </p>
         </div>
-        <div class="demo" aria-label="下載指令示意">
-          <div class="window">
-            <span>● ● ●</span><span>一個網址，就能開始</span>
-          </div>
-          <div class="terminal">
-            <p class="muted"># 貼上單集網址</p>
-            <p><span class="prompt">❯</span> anicat https://anime1.me/15651</p>
-            <div class="rule"></div>
-            <p class="muted"># 也可以貼上分類或季度網址</p>
-            <p><span class="prompt">❯</span> anicat https://anime1.me/category/your-category</p>
-            <div class="file">
-              <span>↳</span>
-              <div>Anime1_Download/<small>影片預設儲存在這裡</small></div>
-              <span class="filetag">MP4</span>
+        <div class="hero-visual">
+          <img
+            class="mascot pixel-art"
+            src="assets/anicat-mascot-mark.png"
+            alt="AniCat 吉祥物：繫橘色領巾的黑白像素貓"
+            width="92"
+            height="97"
+          />
+          <div class="demo" aria-label="下載指令示意">
+            <div class="window">
+              <span>● ● ●</span><span>一個網址，就能開始</span>
             </div>
+            <div class="terminal">
+              <p class="muted"># 貼上單集網址</p>
+              <p><span class="prompt">❯</span> anicat https://anime1.me/15651</p>
+              <div class="rule"></div>
+              <p class="muted"># 也可以貼上分類或季度網址</p>
+              <p><span class="prompt">❯</span> anicat https://anime1.me/category/your-category</p>
+              <div class="file">
+                <span>↳</span>
+                <div>Anime1_Download/<small>影片預設儲存在這裡</small></div>
+                <span class="filetag">MP4</span>
+              </div>
+            </div>
+            <div class="caption">操作示意，並非即時下載畫面</div>
           </div>
-          <div class="caption">操作示意，並非即時下載畫面</div>
         </div>
       </section>
       <section class="strip">
@@ -227,7 +242,10 @@ anicat --help</code></pre>
       </section>
     </main>
     <footer class="wrap">
-      <a class="brand" href="#">AniCat</a>
+      <a class="brand" href="#">
+        <img class="pixel-art" src="assets/anicat-logo-mark.png" alt="" width="44" height="32" />
+        AniCat
+      </a>
       <p>讓工具處理下載，讓你專心看故事。</p>
       <a href="https://github.com/HeiTang/AniCat-v2/blob/main/LICENSE"
         >授權文件 ↗</a

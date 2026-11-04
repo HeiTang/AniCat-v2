@@ -439,3 +439,48 @@ footer {
     scroll-behavior: auto;
   }
 }
+
+/* Approved pixel identity. */
+.pixel-art {
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+  line-height: 1;
+}
+.brand img {
+  width: 44px;
+  height: auto;
+  flex: none;
+}
+.brand span {
+  margin-left: 0;
+}
+.hero-visual {
+  min-width: 0;
+  display: grid;
+  position: relative;
+  transform: rotate(-1deg);
+  transform-origin: top right;
+}
+.hero-visual .demo {
+  transform: none;
+}
+.mascot {
+  display: block;
+  width: 92px;
+  height: auto;
+  justify-self: end;
+  position: relative;
+  z-index: 1;
+  margin: 0 24px 0 0;
+}
+@media (max-width: 760px) {
+  .hero-visual {
+    transform: none;
+  }
+}

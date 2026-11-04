@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="website/assets/anicat-logo-readme.svg" alt="AniCat 主 Logo：橘白像素貓" width="192" height="192">
+</p>
+
 # AniCat-v2
 
 > 穩定、快速、可續傳的 Anime1 命令列下載器。
@@ -136,6 +140,10 @@ reports = service.download_many(episode_urls)
 ## 貢獻
 
 歡迎任何形式的貢獻！請先閱讀 [CONTRIBUTING.md](CONTRIBUTING.md) 以了解專案規範與流程。
+
+<p align="center">
+  <img src="website/assets/anicat-mascot-readme.svg" alt="AniCat 吉祥物：繫橘色領巾的黑白像素貓" width="128" height="128">
+</p>
 
 ## License
 
