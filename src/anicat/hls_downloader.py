@@ -1,5 +1,6 @@
 """Download HLS with FFmpeg while keeping completed files intact on failure."""
 
+import logging
 import re
 import shutil
 import subprocess
@@ -13,10 +14,17 @@ import requests
 from .downloader import ProgressCallback, target_path
 from .errors import DownloadError
 from .hls import validate_playlist_url
+from .hls_segments import (
+    SegmentSpec,
+    download_segments,
+    parse_media_segments,
+    write_local_playlist,
+)
 from .models import DownloadProgressEvent, DownloadResult, Episode
 
 _MAX_MASTER_VARIANT_DEPTH = 3
 _HLS_DURATION_TOLERANCE = 0.25
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -26,6 +34,7 @@ class HlsManifest:
     url: str
     segment_count: int
     expected_duration: float | None
+    segments: tuple[SegmentSpec, ...] | None = None
 
 
 def _fetch_playlist(url: str, episode: Episode, timeout: float) -> str:
@@ -119,12 +128,15 @@ def _validate_hls_sources(playlist_url: str, episode: Episode, timeout: float) -
         current_url = urljoin(current_url, variant)
         playlist = _fetch_playlist(current_url, episode, timeout)
 
-    segments = _playlist_segments(playlist)
-    if not segments:
-        raise DownloadError(f"HLS playlist contains no media segments: {current_url}")
     if "#EXT-X-ENDLIST" not in playlist:
         raise DownloadError(f"HLS playlist is not complete: {current_url}")
-    return HlsManifest(current_url, len(segments), _playlist_duration(playlist))
+    segments = parse_media_segments(playlist, current_url)
+    return HlsManifest(
+        current_url,
+        len(segments),
+        _playlist_duration(playlist),
+        segments,
+    )
 
 
 def _progress_duration(output: bytes | str | None) -> float | None:
@@ -156,6 +168,20 @@ def _safe_audio_timestamp_correction(line: str) -> bool:
         return False
     previous, current, corrected = map(int, match.groups())
     return 0 <= previous - current <= 4800 and corrected == previous + 1
+
+
+def _classify_ffmpeg_diagnostic(line: str) -> str:
+    """Classify every FFmpeg warning; only the measured AAC mux correction is recoverable."""
+
+    if _safe_audio_timestamp_correction(line):
+        return "recoverable_audio_timestamp_rounding"
+    if "Packet corrupt" in line:
+        return "fatal_packet_corruption"
+    if "Non-monotonous DTS" in line:
+        return "fatal_timestamp_discontinuity"
+    if "error" in line.lower() or "failed" in line.lower():
+        return "fatal_ffmpeg_error"
+    return "fatal_ffmpeg_warning"
 
 
 def _validate_output(executable: str, path: Path, duration: float | None) -> None:
@@ -235,6 +261,32 @@ def download_hls_episode(
     # HLS cannot reuse the direct downloader's byte-range .part files.
     with tempfile.TemporaryDirectory(prefix=".anicat-hls-", dir=output_dir) as work:
         temporary = Path(work) / "video.mp4"
+        input_playlist = playlist
+        if manifest is not None and manifest.segments is not None:
+            batch = download_segments(
+                manifest.segments,
+                Path(work) / "segments",
+                headers={"Referer": episode.page_url},
+                cookies=episode.cookies,
+                timeout=timeout,
+                retries=retries,
+            )
+            LOGGER.debug("HLS segment evidence: %s", batch.summary)
+            input_path = Path(work) / "index.m3u8"
+            normalizations = write_local_playlist(input_path, manifest.segments, batch)
+            LOGGER.debug(
+                "HLS continuity normalization: %s",
+                [
+                    {
+                        "segment": item.segment_index,
+                        "offsets": item.offsets,
+                        "packets": item.packets_rewritten,
+                    }
+                    for item in normalizations
+                ],
+            )
+            input_playlist = str(input_path)
+        input_headers = ["-referer", episode.page_url] if input_playlist == playlist else []
         command = [
             executable,
             "-nostdin",
@@ -247,16 +299,15 @@ def download_hls_episode(
             "-progress",
             "pipe:1",
             "-protocol_whitelist",
-            "http,https,tcp,tls,crypto",
+            "file,pipe,http,https,tcp,tls,crypto",
             "-rw_timeout",
             str(int(timeout * 1_000_000)),
             # Segment redirects may switch CDN hosts; do not reuse their TLS connection.
             "-http_persistent",
             "0",
-            "-referer",
-            episode.page_url,
+            *input_headers,
             "-i",
-            playlist,
+            input_playlist,
             "-map",
             "0:v:0",
             "-map",
@@ -289,12 +340,15 @@ def download_hls_episode(
                     raise DownloadError(f"could not start FFmpeg: {error}") from error
                 else:
                     diagnostics.seek(0)
-                    detail = ""
+                    details: list[str] = []
                     for raw_line in diagnostics:
                         line = raw_line.decode("utf-8", errors="replace").strip()
-                        if line and not _safe_audio_timestamp_correction(line):
-                            detail = line[:2000]
-                            break
+                        if not line:
+                            continue
+                        category = _classify_ffmpeg_diagnostic(line)
+                        if category != "recoverable_audio_timestamp_rounding":
+                            details.append(f"[{category}] {line}")
+                    detail = "\n".join(details)[:2000]
 
             duration = _progress_duration(result.stdout)
             complete = (

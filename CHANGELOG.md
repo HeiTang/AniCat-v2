@@ -5,6 +5,7 @@
 ### Added
 
 - HLS 下載會在 FFmpeg 前確認 media playlist 已結束，並比對輸出與 `#EXTINF` 總長；另以 `--retries` 有限次數重試 playlist 驗證與完整工作階段，避免缺片輸出被誤視為成功。
+- HLS 會固定 playlist snapshot、完整抓取並驗證每個 MPEG-TS segment；只在明示 `EXT-X-DISCONTINUITY` 邊界做 header-only continuity counter 正規化，缺片與未標記 discontinuity 一律拒絕。
 - 新增 `anime1.cc` 與 `anime1.in` 的 HLS 單集解析、全集分頁展開及 FFmpeg MP4 輸出。
 - 支援 `anime1.pw` 單集、`?cat=` 分類頁與 slug 分類頁下載；此來源直接解析頁面 MP4 source，沿用現有 Range 續傳下載流程。
 

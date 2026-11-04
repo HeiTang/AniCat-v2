@@ -63,8 +63,13 @@ anicat --help
 並確認 `ffmpeg -version` 可執行。macOS 使用 Homebrew 時可執行 `brew install ffmpeg`。
 HLS 下載不使用 direct MP4 的 `.part` 續傳；影像直接複製，音訊轉成 AAC 並同步時間戳。
 只有 FFmpeg 成功產生非空 MP4 後才會替換目的檔。
-下載前會讀取已結束的 media playlist，完成後再以 FFmpeg progress duration
-與 `#EXTINF` 總長比對；這能拒絕 FFmpeg 略過中段缺失/截斷後仍回傳 0 的輸出，且不支援 live playlist。
+下載前會固定一次已結束的 media playlist snapshot，並把每個 segment 完整抓到暫存目錄；
+每段都核對 HTTP `Content-Length`、非空、188-byte TS framing、TEI 與每個 PID 的內部 continuity
+counter。中段 404、短讀取、掉 packet 或未通過結構檢查時，整集拒絕且不碰既有成品。
+只有 playlist 明示 `#EXT-X-DISCONTINUITY` 的邊界才允許 CC/時間軸重設；FFmpeg 使用保留原始
+段證據的 header-only CC 正規化副本，不會用 warning whitelist 掩蓋 Packet corrupt。
+完成後仍以 FFmpeg progress duration 與 `#EXTINF` 總長比對，並做全片解碼驗證；live playlist、
+AES-128/SAMPLE-AES、fMP4、byte-range 與 `#EXT-X-GAP` 目前明確拒絕，不會當成成功。
 
 ```bash
 anicat https://anime1.cc/681899930-01-0142
