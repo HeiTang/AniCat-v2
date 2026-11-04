@@ -1,6 +1,7 @@
 """AniCat core package."""
 
 import logging
+from importlib.metadata import version
 
 from .client import Anime1Client
 from .errors import AniCatError, DownloadError, FetchError, ParseError
@@ -23,6 +24,6 @@ __all__ = [
     "__version__",
 ]
 
-__version__ = "0.1.0"
+__version__ = version("anicat")
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())

@@ -1,3 +1,4 @@
+import importlib.metadata
 import importlib.resources
 import unittest
 
@@ -35,6 +36,9 @@ class PublicApiTests(unittest.TestCase):
         marker = importlib.resources.files("anicat").joinpath("py.typed")
 
         self.assertTrue(marker.is_file())
+
+    def test_version_matches_distribution_metadata(self):
+        self.assertEqual(anicat.__version__, importlib.metadata.version("anicat"))
 
 
 if __name__ == "__main__":
