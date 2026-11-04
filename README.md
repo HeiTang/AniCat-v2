@@ -48,9 +48,9 @@ anicat --help
 - 安裝套件
 
     ```bash
-    # 使用 Poetry
-    poetry install
-    poetry run anicat --help
+    # 使用 uv
+    uv sync --locked
+    uv run anicat --help
 
     # 使用一般 Python 環境
     python3 -m pip install .
