@@ -3,26 +3,75 @@ from pathlib import Path
 from queue import Queue
 from unittest.mock import patch
 
-from anicat.gui import run_download
+from anicat.gui import GuiEvent, run_download
+from anicat.models import DownloadResult, Episode, JobReport
+
+
+def drain(events: Queue[GuiEvent | None]) -> list[GuiEvent | None]:
+    values: list[GuiEvent | None] = []
+    while not events.empty():
+        values.append(events.get_nowait())
+    return values
 
 
 class GuiWorkerTests(unittest.TestCase):
     @patch("anicat.gui.AniCatService")
     def test_parse_failure_always_releases_ui(self, factory):
         factory.return_value.collect_episode_urls.side_effect = ValueError("bad URL")
-        events = Queue()
+        events: Queue[GuiEvent | None] = Queue()
         run_download(["bad"], Path("/tmp/output"), events)
-        self.assertIn("bad URL", events.get_nowait())
-        self.assertIsNone(events.get_nowait())
+        values = drain(events)
+        self.assertEqual(values[0], GuiEvent("status", text="正在整理網址…"))
+        self.assertEqual(values[1], GuiEvent("status", text="這批工作沒有完成", detail="bad URL"))
+        self.assertIsNone(values[-1])
         factory.return_value.download_many.assert_not_called()
 
     @patch("anicat.gui.AniCatService")
-    def test_expanded_urls_are_downloaded(self, factory):
+    def test_expanded_urls_are_queued_before_download(self, factory):
         factory.return_value.collect_episode_urls.return_value = ["https://anime1.me/1"]
-        events = Queue()
+        events: Queue[GuiEvent | None] = Queue()
         run_download(["https://anime1.me/?cat=1"], Path("/tmp/output"), events)
-        self.assertIn("1", events.get_nowait())
-        self.assertIsNone(events.get_nowait())
+        values = drain(events)
+        status_event = values[0]
+        assert isinstance(status_event, GuiEvent)
+        self.assertEqual(status_event.kind, "status")
+        queue_event = values[1]
+        assert isinstance(queue_event, GuiEvent)
+        self.assertEqual(queue_event, GuiEvent("queue", text="已排入 1 集", total=1))
+        self.assertEqual(values[2], GuiEvent("item", url="https://anime1.me/1", state="queued"))
+        self.assertIsNone(values[-1])
         self.assertEqual(
-            factory.return_value.download_many.call_args.args[0], ["https://anime1.me/1"]
+            factory.return_value.download_many.call_args.kwargs["on_done"].__name__, "done"
         )
+
+    @patch("anicat.gui.AniCatService")
+    def test_job_result_becomes_observable_item_state(self, factory):
+        url = "https://anime1.me/1"
+        factory.return_value.collect_episode_urls.return_value = [url]
+        result = DownloadResult(
+            Episode(url, "episode", "https://cdn.example/episode.mp4"),
+            Path("/tmp/output/episode.mp4"),
+            "skipped",
+            10,
+            10,
+        )
+        factory.return_value.download_many.side_effect = lambda _urls, on_done: on_done(
+            JobReport(url=url, result=result)
+        )
+        events: Queue[GuiEvent | None] = Queue()
+        run_download([url], Path("/tmp/output"), events)
+        values = drain(events)
+        self.assertIn(
+            GuiEvent(
+                "item",
+                url=url,
+                state="skipped",
+                detail="/tmp/output/episode.mp4",
+            ),
+            values,
+        )
+        self.assertIsNone(values[-1])
+
+
+if __name__ == "__main__":
+    unittest.main()
