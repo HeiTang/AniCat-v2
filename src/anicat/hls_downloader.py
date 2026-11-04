@@ -1,8 +1,10 @@
 """Download HLS with FFmpeg while keeping completed files intact on failure."""
 
+import re
 import shutil
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urljoin
 
@@ -13,9 +15,19 @@ from .errors import DownloadError
 from .hls import validate_playlist_url
 from .models import DownloadProgressEvent, DownloadResult, Episode
 
+_MAX_MASTER_VARIANT_DEPTH = 3
+_HLS_DURATION_TOLERANCE = 0.5
 _HLS_PROBE_BYTES = 376
 _HLS_MIN_SEGMENT_BYTES = 188
-_MAX_MASTER_VARIANT_DEPTH = 3
+
+
+@dataclass(frozen=True)
+class HlsManifest:
+    """Media playlist facts used to reject incomplete remuxes."""
+
+    url: str
+    segment_count: int
+    expected_duration: float | None
 
 
 def _fetch_playlist(url: str, episode: Episode, timeout: float) -> str:
@@ -86,6 +98,16 @@ def _playlist_attribute(attributes: str, wanted: str) -> str | None:
     return None
 
 
+def _playlist_duration(playlist: str) -> float | None:
+    """Return the sum of media durations, when the playlist declares them."""
+
+    durations = [
+        float(match.group(1))
+        for match in re.finditer(r"#EXTINF:([0-9]+(?:\.[0-9]+)?)[,\r\n]", playlist)
+    ]
+    return sum(durations) if durations else None
+
+
 def _probe_segment(url: str, episode: Episode, timeout: float) -> None:
     """Verify that a segment exists and is not an obviously truncated response."""
 
@@ -129,8 +151,8 @@ def _probe_segment(url: str, episode: Episode, timeout: float) -> None:
             response.close()
 
 
-def _validate_hls_sources(playlist_url: str, episode: Episode, timeout: float) -> None:
-    """Reject playlists with missing or truncated media before making an MP4."""
+def _validate_hls_sources(playlist_url: str, episode: Episode, timeout: float) -> HlsManifest:
+    """Inspect the final media playlist before making an MP4."""
 
     current_url = playlist_url
     playlist = _fetch_playlist(current_url, episode, timeout)
@@ -145,8 +167,28 @@ def _validate_hls_sources(playlist_url: str, episode: Episode, timeout: float) -
     segments = _playlist_segments(playlist)
     if not segments:
         raise DownloadError(f"HLS playlist contains no media segments: {current_url}")
+    if "#EXT-X-ENDLIST" not in playlist:
+        raise DownloadError(f"HLS playlist is not complete: {current_url}")
     for segment in segments:
         _probe_segment(urljoin(current_url, segment), episode, timeout)
+    return HlsManifest(current_url, len(segments), _playlist_duration(playlist))
+
+
+def _progress_duration(output: bytes | str | None) -> float | None:
+    """Read the final FFmpeg progress timestamp from stdout."""
+
+    if output is None:
+        return None
+    text = output.decode("utf-8", errors="replace") if isinstance(output, bytes) else output
+    matches = re.findall(r"^out_time_us=(\d+)$", text, flags=re.MULTILINE)
+    return int(matches[-1]) / 1_000_000 if matches else None
+
+
+def _duration_matches(expected: float, actual: float) -> bool:
+    """Allow only small timestamp rounding differences between HLS and MP4."""
+
+    tolerance = max(_HLS_DURATION_TOLERANCE, expected * 0.001)
+    return abs(expected - actual) < tolerance
 
 
 def download_hls_episode(
@@ -174,7 +216,8 @@ def download_hls_episode(
         raise ValueError("retries must be greater than or equal to 0")
     if any(character in episode.page_url for character in "\r\n"):
         raise DownloadError("invalid episode Referer")
-    _validate_hls_sources(playlist, episode, timeout)
+    manifest = _validate_hls_sources(playlist, episode, timeout)
+    expected_duration = manifest.expected_duration if manifest else None
     output_dir.mkdir(parents=True, exist_ok=True)
     if progress:
         progress(DownloadProgressEvent(episode, "started", 0, 0))
@@ -188,6 +231,9 @@ def download_hls_episode(
             "-loglevel",
             "error",
             "-xerror",
+            "-nostats",
+            "-progress",
+            "pipe:1",
             "-protocol_whitelist",
             "http,https,tcp,tls,crypto",
             "-rw_timeout",
@@ -219,7 +265,7 @@ def download_hls_episode(
             # Keep FFmpeg diagnostics on disk so long failures cannot exhaust memory.
             with tempfile.TemporaryFile() as diagnostics:
                 try:
-                    result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=diagnostics)
+                    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=diagnostics)
                 except subprocess.TimeoutExpired:
                     result = subprocess.CompletedProcess(command, -1)
                     detail = f"timed out after {timeout:g} seconds"
@@ -230,14 +276,25 @@ def download_hls_episode(
                     diagnostics.seek(max(0, diagnostics.tell() - 2000))
                     detail = diagnostics.read().decode("utf-8", errors="replace").strip()
 
-            if result.returncode == 0 and temporary.is_file() and temporary.stat().st_size > 0:
+            duration = _progress_duration(result.stdout)
+            complete = (
+                result.returncode == 0 and temporary.is_file() and temporary.stat().st_size > 0
+            )
+            if complete and expected_duration is not None:
+                complete = duration is not None and _duration_matches(expected_duration, duration)
+                if not complete:
+                    last_error = (
+                        "FFmpeg output duration mismatch: "
+                        f"expected {expected_duration:.3f}s, "
+                        f"got {duration if duration is not None else 'unknown'}s"
+                    )
+            if complete:
                 break
 
-            last_error = (
-                f"FFmpeg failed ({result.returncode}): {detail}"
-                if result.returncode
-                else "FFmpeg produced no video"
-            )
+            if result.returncode:
+                last_error = f"FFmpeg failed ({result.returncode}): {detail}"
+            elif duration is None or expected_duration is None:
+                last_error = "FFmpeg produced no video"
             if attempt == retries:
                 raise DownloadError(f"{last_error} after {attempt + 1} attempt(s)")
         else:

@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from anicat.errors import DownloadError
-from anicat.hls_downloader import download_hls_episode
+from anicat.hls_downloader import HlsManifest, download_hls_episode
 from anicat.models import Episode
 
 
@@ -15,7 +15,7 @@ class HlsDownloaderTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.output = Path(self.directory.name)
         self.episode = Episode("https://anime1.cc/show", "show", "https://cdn.example/a.m3u8")
-        validation = patch("anicat.hls_downloader._validate_hls_sources")
+        validation = patch("anicat.hls_downloader._validate_hls_sources", return_value=None)
         validation.start()
         self.addCleanup(validation.stop)
 
@@ -105,3 +105,19 @@ class HlsDownloaderTests(unittest.TestCase):
         result = download_hls_episode(self.episode, self.output, retries=1, timeout=1)
         self.assertEqual(run.call_count, 2)
         self.assertEqual(result.path.read_bytes(), b"video")
+
+    @patch(
+        "anicat.hls_downloader._validate_hls_sources",
+        return_value=HlsManifest("https://cdn.example/index.m3u8", 3, 2),
+    )
+    @patch("anicat.hls_downloader.shutil.which", return_value="/bin/ffmpeg")
+    @patch("anicat.hls_downloader.subprocess.run")
+    def test_duration_mismatch_is_rejected(self, run, _which, _validate):
+        def finish(command, **kwargs):
+            Path(command[-1]).write_bytes(b"video")
+            return subprocess.CompletedProcess(command, 0, stdout=b"out_time_us=1000000\n")
+
+        run.side_effect = finish
+        with self.assertRaisesRegex(DownloadError, "duration mismatch"):
+            download_hls_episode(self.episode, self.output, retries=0)
+        self.assertFalse((self.output / "show.mp4").exists())
