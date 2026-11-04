@@ -13,10 +13,10 @@
 
 新增 provider 分流、`.cc`／`.in` URL 分類、單集播放器解析、全集分頁展開，以及 FFmpeg HLS → MP4 後端。
 
-HLS 輸出影像直接複製，音訊以 AAC 重編碼並同步時間戳，避免上游分段非遞增 DTS。只在 FFmpeg 成功產生非空暫存檔後替換目的檔；HLS 不沿用 direct MP4 的 `.part` 續傳。
+HLS 輸出影像直接複製，音訊以 AAC 重編碼並同步時間戳，避免上游分段非遞增 DTS。通過非空檔案、playlist 片長比對與 FFmpeg 診斷檢查後才替換目的檔；HLS 不沿用 direct MP4 的 `.part` 續傳。
 
 ## 驗證限制
 
 - 靜態 parser、下載器、服務分流與真實 FFmpeg runtime 測試涵蓋。
 - 真實站點單集下載需外部網路與 FFmpeg，CI 不執行上游整集下載。
-- HLS 失敗後重新執行會從頭下載，`--retries` 不重試 FFmpeg 工作階段。
+- HLS 失敗後重新執行會從頭下載，`--retries` 對 playlist 與 FFmpeg 工作階段做有限次數的完整重試。

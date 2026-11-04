@@ -11,8 +11,9 @@
 ### Changed
 
 - HLS 來源的音訊改用 AAC 重編碼並同步時間戳，以處理上游分段的非遞增 DTS。
-- HLS 音訊重編碼前重設 sample PTS，避免上游 discontinuity 讓 FFmpeg 產生 non-monotonic DTS。
-- HLS 下載在產生非空暫存 MP4 前不會替換既有成品。
+- HLS 音訊固定為 48 kHz／雙聲道並保留時間軸，避免音訊格式切換時重設 PTS；拒絕錯誤診斷，只允許小於等於 100 ms 的音訊 mux 校正。
+- 關閉 HLS HTTP 連線重用，處理片段跨 CDN 主機重導向。
+- HLS 下載須通過非空檔案、片長、診斷與全片解碼驗證後才替換既有成品；解碼退出碼 0 但 stderr 有錯誤也會拒絕。
 - HLS `timeout` 僅限制來源讀取閒置時間，不設定整集 FFmpeg 總時限。
 - `anime1.pw` 頁面解析改用 GET 抓取 HTML，避免依賴 WordPress / Cloudflare 對 POST 頁面請求的相容行為。
 - direct video parser 會優先選擇 `video/mp4` source；若頁面提供多個 source 會記錄 warning。
