@@ -68,7 +68,7 @@ anicat-gui
 視窗提供網址佇列、儲存資料夾選擇與右側逐集狀態卡，並共用 CLI 的下載服務。
 狀態只會顯示實際事件：等待中、完成、已存在或失敗，不顯示虛假的百分比進度。
 它需要 Python Tk 支援；若系統沒有 Tk，請改用 CLI。支援來源與 CLI 相同，
-目前是 `anime1.me` 與 `anime1.pw`。
+本整合測試分支包含 `anime1.me`、`anime1.pw`、`anime1.cc` 與 `anime1.in`。
 
 一般安裝會透過 `imageio-ffmpeg` 一起安裝影片處理工具 FFmpeg，不需要另外設定 PATH。
 桌面介面會在開始下載前檢查工具是否能正常執行；系統已有可用的 FFmpeg 時優先沿用，
@@ -86,8 +86,16 @@ uv sync --locked --reinstall-package imageio-ffmpeg
 
 ## HLS 來源（開發版）
 
-`anime1.cc` 與 `anime1.in` 使用 HLS，需要先安裝 [FFmpeg](https://ffmpeg.org/download.html)，
-並確認 `ffmpeg -version` 可執行。macOS 使用 Homebrew 時可執行 `brew install ffmpeg`。
+`anime1.cc` 與 `anime1.in` 使用 HLS，需要可執行的 [FFmpeg](https://ffmpeg.org/download.html)。
+程式會先使用 PATH 中通過 `ffmpeg -version` 檢查的系統版本；找不到時自動改用
+`imageio-ffmpeg` 內附版本，不需要另外設定 PATH。若兩者都無法執行，請在專案資料夾修復依賴：
+
+```bash
+uv sync --locked --reinstall-package imageio-ffmpeg
+```
+
+未提供對應平台 wheel 時，才需要自行安裝 FFmpeg（macOS 使用 Homebrew 可執行
+`brew install ffmpeg`）。
 HLS 下載不使用 direct MP4 的 `.part` 續傳；影像直接複製，音訊轉成 AAC 並同步時間戳。
 只有 FFmpeg 成功產生非空 MP4 後才會替換目的檔。
 下載前會固定一次已結束的 media playlist snapshot，並把每個 segment 完整抓到暫存目錄；

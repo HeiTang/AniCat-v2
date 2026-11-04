@@ -1,7 +1,7 @@
 """Optional real FFmpeg test using a generated local HLS video."""
 
 import functools
-import shutil
+import os
 import subprocess
 import tempfile
 import threading
@@ -10,12 +10,14 @@ import unittest
 from dataclasses import replace
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 from anicat.errors import DownloadError
-from anicat.hls_downloader import download_hls_episode
+from anicat.ffmpeg import find_ffmpeg
+from anicat.hls_downloader import _decode_timestamp_options, download_hls_episode
 from anicat.hls_segments import download_segments, parse_media_segments
 from anicat.models import Episode
 
@@ -220,12 +222,12 @@ def _reset_segment_counters(path: Path, initial: dict[int, int] | None = None) -
     return counters
 
 
-@unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg is not on PATH")
+@unittest.skipUnless(find_ffmpeg(), "FFmpeg is unavailable")
 class HlsRuntimeTests(unittest.TestCase):
     def test_remux_http_hls_into_decodable_mp4(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            executable = shutil.which("ffmpeg")
+            executable = find_ffmpeg()
             assert executable is not None
             _generate_hls_fixture(executable, root)
             server = ThreadingHTTPServer(
@@ -249,10 +251,7 @@ class HlsRuntimeTests(unittest.TestCase):
                         "-xerror",
                         "-i",
                         str(result.path),
-                        "-vsync",
-                        "0",
-                        "-enc_time_base",
-                        "-1",
+                        *_decode_timestamp_options(executable),
                         "-f",
                         "null",
                         "-",
@@ -357,10 +356,35 @@ class HlsRuntimeTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=5)
 
+    @patch.dict(os.environ, {"PATH": "", "IMAGEIO_FFMPEG_EXE": ""})
+    def test_bundled_ffmpeg_remuxes_without_system_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = find_ffmpeg()
+            self.assertIsNotNone(executable)
+            assert executable is not None
+            _generate_hls_fixture(executable, root)
+            server = ThreadingHTTPServer(
+                ("127.0.0.1", 0), functools.partial(QuietHandler, directory=directory)
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                origin = f"http://127.0.0.1:{server.server_port}"
+                episode = Episode(
+                    origin, "bundled-fixture", f"{origin}/index.m3u8", stream_type="hls"
+                )
+                result = download_hls_episode(episode, root / "output", timeout=5, retries=0)
+                self.assertGreater(result.bytes_written, 0)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
     def test_explicit_discontinuity_with_segment_counter_reset_recovers(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            executable = shutil.which("ffmpeg")
+            executable = find_ffmpeg()
             assert executable is not None
             _generate_hls_fixture(executable, root)
             playlist = root / "index.m3u8"
@@ -391,7 +415,7 @@ class HlsRuntimeTests(unittest.TestCase):
     def test_audio_format_change_is_remuxed_per_discontinuity_group(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            executable = shutil.which("ffmpeg")
+            executable = find_ffmpeg()
             assert executable is not None
             _generate_audio_format_change_fixture(executable, root)
             server = ThreadingHTTPServer(
@@ -412,12 +436,12 @@ class HlsRuntimeTests(unittest.TestCase):
                 thread.join(timeout=5)
 
 
-@unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg is not on PATH")
+@unittest.skipUnless(find_ffmpeg(), "FFmpeg is unavailable")
 class HlsAesRuntimeTests(unittest.TestCase):
     def test_aes128_rotation_implicit_iv_and_key_retry(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            executable = shutil.which("ffmpeg")
+            executable = find_ffmpeg()
             assert executable is not None
             _generate_encrypted_hls_fixture(executable, root)
 
@@ -451,7 +475,7 @@ class HlsAesRuntimeTests(unittest.TestCase):
     def test_aes128_same_uri_rotation_uses_declaration_scoped_keys(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            executable = shutil.which("ffmpeg")
+            executable = find_ffmpeg()
             assert executable is not None
             _generate_encrypted_hls_fixture(executable, root)
             playlist = root / "index.m3u8"
@@ -498,7 +522,7 @@ class HlsAesRuntimeTests(unittest.TestCase):
     def test_aes128_bad_key_padding_and_ciphertext_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            executable = shutil.which("ffmpeg")
+            executable = find_ffmpeg()
             assert executable is not None
             _generate_encrypted_hls_fixture(executable, root)
             server = ThreadingHTTPServer(
