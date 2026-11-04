@@ -108,11 +108,10 @@ def main() -> int:
 
     root.title("AniCat · Download workspace")
     root.geometry("1060x720")
-    root.minsize(820, 610)
+    root.minsize(820, 660)
     root.configure(bg=COLORS["paper"])
 
     title_font = ("Helvetica Neue", 18, "bold")
-    display_font = ("Helvetica Neue", 25, "bold")
     body_font = ("Helvetica Neue", 11)
     small_font = ("Helvetica Neue", 9)
     mono_font = ("Menlo", 9)
@@ -130,9 +129,9 @@ def main() -> int:
         )
 
     outer = tk.Frame(root, bg=COLORS["paper"])
-    outer.pack(fill="both", expand=True, padx=42, pady=30)
+    outer.pack(fill="both", expand=True, padx=34, pady=20)
     header = tk.Frame(outer, bg=COLORS["paper"])
-    header.pack(fill="x", pady=(0, 26))
+    header.pack(fill="x", pady=(0, 14))
     brand_row = tk.Frame(header, bg=COLORS["paper"])
     brand_row.pack(side="left")
     label(brand_row, "AniCat", font=("Helvetica Neue", 22, "bold")).pack(side="left")
@@ -142,7 +141,7 @@ def main() -> int:
     label(header, "LOCAL DOWNLOAD WORKSPACE  /  01", font=mono_font, fg=COLORS["muted"]).pack(
         side="right", pady=7
     )
-    tk.Frame(outer, bg=COLORS["line"], height=1).pack(fill="x", pady=(0, 26))
+    tk.Frame(outer, bg=COLORS["line"], height=1).pack(fill="x", pady=(0, 14))
 
     content = tk.Frame(outer, bg=COLORS["paper"])
     content.pack(fill="both", expand=True)
@@ -151,10 +150,10 @@ def main() -> int:
     content.grid_rowconfigure(1, weight=1)
 
     intro = tk.Frame(content, bg=COLORS["paper"])
-    intro.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 22))
+    intro.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 14))
     label(intro, "01  /  DOWNLOAD", font=mono_font, fg=COLORS["accent"]).pack(anchor="w")
-    label(intro, "把故事收好。\n讓貓帶路。", font=display_font, justify="left").pack(
-        anchor="w", pady=(9, 7)
+    label(intro, "把想看的，留在本機。", font=("Helvetica Neue", 22, "bold")).pack(
+        anchor="w", pady=(4, 3)
     )
     label(
         intro,
@@ -177,7 +176,7 @@ def main() -> int:
     label(url_top, "一行一個網址", font=small_font, fg=COLORS["muted"]).pack(side="right", pady=4)
     urls = tk.Text(
         url_card,
-        height=7,
+        height=4,
         wrap="word",
         font=mono_font,
         bg="#F8F5ED",
@@ -294,17 +293,42 @@ def main() -> int:
         command=queue_canvas.yview,
         bg=COLORS["dark"],
         troughcolor=COLORS["dark"],
+        activebackground=COLORS["dark_muted"],
+        width=8,
+        bd=0,
+        highlightthickness=0,
+        relief="flat",
     )
     queue_scroll.grid(row=3, column=1, sticky="ns")
+    queue_scroll.grid_remove()
     queue_canvas.configure(yscrollcommand=queue_scroll.set)
     queue_inner = tk.Frame(queue_canvas, bg=COLORS["dark"])
     queue_window = queue_canvas.create_window((0, 0), window=queue_inner, anchor="nw")
-    queue_inner.bind(
-        "<Configure>", lambda _event: queue_canvas.configure(scrollregion=queue_canvas.bbox("all"))
-    )
-    queue_canvas.bind(
-        "<Configure>", lambda event: queue_canvas.itemconfigure(queue_window, width=event.width)
-    )
+
+    def update_queue_scroll(_event=None) -> None:
+        queue_canvas.configure(scrollregion=queue_canvas.bbox("all"))
+        overflow = queue_inner.winfo_reqheight() > queue_canvas.winfo_height()
+        if overflow:
+            queue_scroll.grid()
+        else:
+            queue_scroll.grid_remove()
+
+    queue_inner.bind("<Configure>", update_queue_scroll)
+
+    def scroll_queue(event) -> str:
+        direction = -1 if event.delta > 0 else 1
+        queue_canvas.yview_scroll(direction, "units")
+        return "break"
+
+    queue_canvas.bind("<MouseWheel>", scroll_queue)
+    queue_canvas.bind("<Button-4>", lambda _event: queue_canvas.yview_scroll(-1, "units"))
+    queue_canvas.bind("<Button-5>", lambda _event: queue_canvas.yview_scroll(1, "units"))
+
+    def resize_queue(event) -> None:
+        queue_canvas.itemconfigure(queue_window, width=event.width)
+        update_queue_scroll()
+
+    queue_canvas.bind("<Configure>", resize_queue)
     empty_label = label(
         queue_inner,
         "貼上網址後，這裡會顯示\n每一集的實際狀態。",
