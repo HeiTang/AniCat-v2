@@ -57,6 +57,18 @@ anicat --help
     anicat --help
     ```
 
+### C. 桌面介面（開發版）
+
+完成本機安裝後可執行：
+
+```bash
+anicat-gui
+```
+
+視窗提供網址輸入、儲存資料夾選擇與逐集結果，並共用 CLI 的下載服務。
+它需要 Python Tk 支援；若系統沒有 Tk，請改用 CLI。支援來源與 CLI 相同，
+目前是 `anime1.me` 與 `anime1.pw`。
+
 ## 使用方法
 
 ```bash

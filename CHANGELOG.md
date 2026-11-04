@@ -4,6 +4,8 @@
 
 ### Added
 
+- 新增 `anicat-gui` 桌面介面，共用下載服務，提供網址輸入、資料夾選擇與逐集結果。
+
 - 支援 `anime1.pw` 單集、`?cat=` 分類頁與 slug 分類頁下載；此來源直接解析頁面 MP4 source，沿用現有 Range 續傳下載流程。
 
 ### Changed

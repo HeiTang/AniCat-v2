@@ -15,6 +15,7 @@ dependencies = [
 
 [project.scripts]
 anicat = "anicat.cli:main"
+anicat-gui = "anicat.gui:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
