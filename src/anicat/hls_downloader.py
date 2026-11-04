@@ -16,9 +16,7 @@ from .hls import validate_playlist_url
 from .models import DownloadProgressEvent, DownloadResult, Episode
 
 _MAX_MASTER_VARIANT_DEPTH = 3
-_HLS_DURATION_TOLERANCE = 0.5
-_HLS_PROBE_BYTES = 376
-_HLS_MIN_SEGMENT_BYTES = 188
+_HLS_DURATION_TOLERANCE = 0.25
 
 
 @dataclass(frozen=True)
@@ -108,49 +106,6 @@ def _playlist_duration(playlist: str) -> float | None:
     return sum(durations) if durations else None
 
 
-def _probe_segment(url: str, episode: Episode, timeout: float) -> None:
-    """Verify that a segment exists and is not an obviously truncated response."""
-
-    response: requests.Response | None = None
-    try:
-        response = requests.get(
-            url,
-            headers={"Referer": episode.page_url, "Range": f"bytes=0-{_HLS_PROBE_BYTES - 1}"},
-            cookies=dict(episode.cookies),
-            stream=True,
-            timeout=(timeout, timeout),
-        )
-        response.raise_for_status()
-        content_range = response.headers.get("Content-Range", "")
-        total = None
-        if "/" in content_range:
-            try:
-                total_text = content_range.rsplit("/", 1)[1]
-                total = None if total_text == "*" else int(total_text)
-            except ValueError:
-                total = None
-        if total is None:
-            content_length = response.headers.get("Content-Length")
-            try:
-                total = int(content_length) if content_length is not None else None
-            except ValueError:
-                total = None
-
-        sample = next(response.iter_content(chunk_size=_HLS_PROBE_BYTES), b"")
-        sample = sample[:_HLS_PROBE_BYTES]
-        if len(sample) < _HLS_MIN_SEGMENT_BYTES or (
-            total is not None and total < _HLS_MIN_SEGMENT_BYTES
-        ):
-            raise DownloadError(f"HLS segment is truncated or empty: {url}")
-        if sample[:1] == b"G" and len(sample) >= 2 * 188 and sample[188:189] != b"G":
-            raise DownloadError(f"HLS MPEG-TS segment is malformed: {url}")
-    except requests.RequestException as error:
-        raise DownloadError(f"could not fetch HLS segment {url}: {error}") from error
-    finally:
-        if response is not None:
-            response.close()
-
-
 def _validate_hls_sources(playlist_url: str, episode: Episode, timeout: float) -> HlsManifest:
     """Inspect the final media playlist before making an MP4."""
 
@@ -169,8 +124,6 @@ def _validate_hls_sources(playlist_url: str, episode: Episode, timeout: float) -
         raise DownloadError(f"HLS playlist contains no media segments: {current_url}")
     if "#EXT-X-ENDLIST" not in playlist:
         raise DownloadError(f"HLS playlist is not complete: {current_url}")
-    for segment in segments:
-        _probe_segment(urljoin(current_url, segment), episode, timeout)
     return HlsManifest(current_url, len(segments), _playlist_duration(playlist))
 
 
