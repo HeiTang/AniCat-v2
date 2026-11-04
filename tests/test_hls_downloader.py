@@ -185,6 +185,14 @@ class AudioTimestampDiagnosticTests(unittest.TestCase):
         )
         self.assertFalse(_safe_audio_timestamp_correction("Failed to open segment 2"))
 
+    def test_audio_queue_backward_warning_is_fatal(self):
+        from anicat.hls_downloader import _classify_ffmpeg_diagnostic
+
+        self.assertEqual(
+            _classify_ffmpeg_diagnostic("[aac] Queue input is backward in time"),
+            "fatal_ffmpeg_warning",
+        )
+
 
 class FullDecodeValidationTests(unittest.TestCase):
     @patch("anicat.hls_downloader.subprocess.run")

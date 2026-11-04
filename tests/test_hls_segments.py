@@ -12,6 +12,7 @@ from anicat.hls_segments import (
     classify_boundaries,
     inspect_ts_segment,
     parse_media_segments,
+    write_group_playlists,
     write_local_playlist,
 )
 
@@ -133,6 +134,9 @@ class PlaylistParsingTests(unittest.TestCase):
             playlist = root / "index.m3u8"
             write_local_playlist(playlist, specs, batch)
             self.assertIn("normalized/segment-000000.ts", playlist.read_text())
+            groups = write_group_playlists(playlist, specs)
+            self.assertEqual(len(groups), 1)
+            self.assertIn("../normalized/segment-000000.ts", groups[0][0].read_text())
 
     def test_explicit_boundary_normalizes_only_continuity_header(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -164,7 +168,9 @@ class PlaylistParsingTests(unittest.TestCase):
             )
             playlist = root / "index.m3u8"
             normalizations = write_local_playlist(playlist, specs, batch)
+            groups = write_group_playlists(playlist, specs)
             self.assertEqual(normalizations[0].segment_index, 1)
+            self.assertEqual(len(groups), 2)
             original = second_path.read_bytes()
             normalized = (root / "normalized" / second_path.name).read_bytes()
             for offset in range(0, len(original), 188):

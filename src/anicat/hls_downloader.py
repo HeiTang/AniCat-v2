@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import BinaryIO
 from urllib.parse import urljoin
 
 import requests
@@ -18,6 +19,7 @@ from .hls_segments import (
     SegmentSpec,
     download_segments,
     parse_media_segments,
+    write_group_playlists,
     write_local_playlist,
 )
 from .models import DownloadProgressEvent, DownloadResult, Episode
@@ -184,6 +186,204 @@ def _classify_ffmpeg_diagnostic(line: str) -> str:
     return "fatal_ffmpeg_warning"
 
 
+def _read_ffmpeg_diagnostics(
+    diagnostics: BinaryIO,
+) -> tuple[str, tuple[str, ...]]:
+    """Classify all FFmpeg diagnostics and retain recoverable lines for evidence."""
+
+    diagnostics.seek(0)
+    fatal: list[str] = []
+    recoverable: list[str] = []
+    for raw_line in diagnostics:
+        line = raw_line.decode("utf-8", errors="replace").strip()
+        if not line:
+            continue
+        category = _classify_ffmpeg_diagnostic(line)
+        if category == "recoverable_audio_timestamp_rounding":
+            recoverable.append(f"[{category}] {line}")
+        else:
+            fatal.append(f"[{category}] {line}")
+    return "\n".join(fatal)[:2000], tuple(recoverable)
+
+
+def _run_ffmpeg(
+    command: list[str],
+) -> tuple[subprocess.CompletedProcess[bytes], str, tuple[str, ...]]:
+    """Run one FFmpeg job and return fatal/recoverable diagnostic evidence."""
+
+    with tempfile.TemporaryFile() as diagnostics:
+        try:
+            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=diagnostics)
+        except OSError as error:
+            raise DownloadError(f"could not start FFmpeg: {error}") from error
+        detail, recoverable = _read_ffmpeg_diagnostics(diagnostics)
+    return result, detail, recoverable
+
+
+def _remux_command(
+    executable: str,
+    input_path: str,
+    output_path: Path,
+    page_url: str,
+    timeout: float,
+) -> list[str]:
+    """Build one local or remote HLS-to-MP4 remux command."""
+
+    input_headers = ["-referer", page_url] if input_path.startswith(("http://", "https://")) else []
+    return [
+        executable,
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "warning",
+        "-err_detect",
+        "explode",
+        "-nostats",
+        "-progress",
+        "pipe:1",
+        "-protocol_whitelist",
+        "file,pipe,http,https,tcp,tls,crypto",
+        "-rw_timeout",
+        str(int(timeout * 1_000_000)),
+        # Segment redirects may switch CDN hosts; do not reuse their TLS connection.
+        "-http_persistent",
+        "0",
+        *input_headers,
+        "-i",
+        input_path,
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a:0?",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-ar",
+        "48000",
+        "-ac",
+        "2",
+        "-af",
+        "aresample=48000:async=1",
+        "-movflags",
+        "+faststart",
+        "-f",
+        "mp4",
+        str(output_path),
+    ]
+
+
+def _concat_command(executable: str, manifest: Path, output_path: Path) -> list[str]:
+    """Build the stream-copy concat command for independently remuxed groups."""
+
+    return [
+        executable,
+        "-nostdin",
+        "-hide_banner",
+        "-y",
+        "-loglevel",
+        "warning",
+        "-err_detect",
+        "explode",
+        "-nostats",
+        "-progress",
+        "pipe:1",
+        "-protocol_whitelist",
+        "file,pipe",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        str(manifest),
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a:0?",
+        "-c",
+        "copy",
+        "-movflags",
+        "+faststart",
+        str(output_path),
+    ]
+
+
+def _remux_error(
+    result: subprocess.CompletedProcess[bytes],
+    detail: str,
+    output: Path,
+    expected_duration: float | None,
+) -> tuple[str | None, float | None]:
+    """Validate one remux result before accepting it as a group or final file."""
+
+    duration = _progress_duration(result.stdout)
+    if result.returncode or detail:
+        return f"FFmpeg failed ({result.returncode}): {detail}", duration
+    if not output.is_file() or output.stat().st_size == 0:
+        return "FFmpeg produced no video", duration
+    if expected_duration is not None and (
+        duration is None or not _duration_matches(expected_duration, duration)
+    ):
+        return (
+            "FFmpeg output duration mismatch: "
+            f"expected {expected_duration:.3f}s, "
+            f"got {duration if duration is not None else 'unknown'}s"
+        ), duration
+    return None, duration
+
+
+def _write_concat_manifest(path: Path, group_outputs: tuple[Path, ...]) -> None:
+    """Write a concat manifest with paths relative to its own directory."""
+
+    path.write_text(
+        "".join(
+            f"file '{output.relative_to(path.parent).as_posix()}'\n" for output in group_outputs
+        ),
+        encoding="utf-8",
+    )
+
+
+def _remux_groups(
+    executable: str,
+    group_playlists: tuple[tuple[Path, float], ...],
+    work: Path,
+    output: Path,
+    timeout: float,
+    expected_duration: float | None,
+) -> str | None:
+    """Remux each discontinuity group, then join compatible MP4 streams."""
+
+    group_outputs = tuple(work / f"group-{index:03d}.mp4" for index in range(len(group_playlists)))
+    for (playlist, expected), group_output in zip(group_playlists, group_outputs, strict=True):
+        group_output.unlink(missing_ok=True)
+        result, detail, recoverable = _run_ffmpeg(
+            _remux_command(executable, str(playlist), group_output, "", timeout)
+        )
+        error, duration = _remux_error(result, detail, group_output, expected)
+        LOGGER.debug(
+            "HLS group %s duration expected=%.3f actual=%s fatal=%s recoverable=%s",
+            playlist.stem,
+            expected,
+            f"{duration:.3f}" if duration is not None else "unknown",
+            detail or "",
+            recoverable,
+        )
+        if error is not None:
+            return error
+    concat_manifest = work / "concat.txt"
+    _write_concat_manifest(concat_manifest, group_outputs)
+    result, detail, recoverable = _run_ffmpeg(_concat_command(executable, concat_manifest, output))
+    error, duration = _remux_error(result, detail, output, expected_duration)
+    LOGGER.debug(
+        "HLS group concat duration expected=%s actual=%s fatal=%s recoverable=%s",
+        f"{expected_duration:.3f}" if expected_duration is not None else "unknown",
+        f"{duration:.3f}" if duration is not None else "unknown",
+        detail or "",
+        recoverable,
+    )
+    return error
+
+
 def _validate_output(executable: str, path: Path, duration: float | None) -> None:
     """Decode the entire candidate before treating TS discontinuities as recoverable."""
 
@@ -262,6 +462,7 @@ def download_hls_episode(
     with tempfile.TemporaryDirectory(prefix=".anicat-hls-", dir=output_dir) as work:
         temporary = Path(work) / "video.mp4"
         input_playlist = playlist
+        group_playlists: tuple[tuple[Path, float], ...] = ()
         if manifest is not None and manifest.segments is not None:
             batch = download_segments(
                 manifest.segments,
@@ -286,98 +487,45 @@ def download_hls_episode(
                 ],
             )
             input_playlist = str(input_path)
-        input_headers = ["-referer", episode.page_url] if input_playlist == playlist else []
-        command = [
-            executable,
-            "-nostdin",
-            "-hide_banner",
-            "-loglevel",
-            "warning",
-            "-err_detect",
-            "explode",
-            "-nostats",
-            "-progress",
-            "pipe:1",
-            "-protocol_whitelist",
-            "file,pipe,http,https,tcp,tls,crypto",
-            "-rw_timeout",
-            str(int(timeout * 1_000_000)),
-            # Segment redirects may switch CDN hosts; do not reuse their TLS connection.
-            "-http_persistent",
-            "0",
-            *input_headers,
-            "-i",
-            input_playlist,
-            "-map",
-            "0:v:0",
-            "-map",
-            "0:a:0?",
-            "-c:v",
-            "copy",
-            # Some providers repeat audio timestamps at HLS discontinuities.
-            "-c:a",
-            "aac",
-            "-ar",
-            "48000",
-            "-ac",
-            "2",
-            "-af",
-            "aresample=48000:async=1",
-            "-movflags",
-            "+faststart",
-            "-f",
-            "mp4",
-            str(temporary),
-        ]
+            group_playlists = write_group_playlists(input_path, manifest.segments)
         last_error = "FFmpeg produced no video"
         for attempt in range(retries + 1):
             temporary.unlink(missing_ok=True)
-            # Keep FFmpeg diagnostics on disk so long failures cannot exhaust memory.
-            with tempfile.TemporaryFile() as diagnostics:
-                try:
-                    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=diagnostics)
-                except OSError as error:
-                    raise DownloadError(f"could not start FFmpeg: {error}") from error
-                else:
-                    diagnostics.seek(0)
-                    details: list[str] = []
-                    for raw_line in diagnostics:
-                        line = raw_line.decode("utf-8", errors="replace").strip()
-                        if not line:
-                            continue
-                        category = _classify_ffmpeg_diagnostic(line)
-                        if category != "recoverable_audio_timestamp_rounding":
-                            details.append(f"[{category}] {line}")
-                    detail = "\n".join(details)[:2000]
-
-            duration = _progress_duration(result.stdout)
-            complete = (
-                result.returncode == 0
-                and not detail
-                and temporary.is_file()
-                and temporary.stat().st_size > 0
-            )
-            if complete and expected_duration is not None:
-                complete = duration is not None and _duration_matches(expected_duration, duration)
-                if not complete:
-                    last_error = (
-                        "FFmpeg output duration mismatch: "
-                        f"expected {expected_duration:.3f}s, "
-                        f"got {duration if duration is not None else 'unknown'}s"
-                    )
-            if complete:
+            if len(group_playlists) > 1:
+                error = _remux_groups(
+                    executable,
+                    group_playlists,
+                    Path(work),
+                    temporary,
+                    timeout,
+                    expected_duration,
+                )
+            else:
+                result, detail, recoverable = _run_ffmpeg(
+                    _remux_command(executable, input_playlist, temporary, episode.page_url, timeout)
+                )
+                error, duration = _remux_error(
+                    result,
+                    detail,
+                    temporary,
+                    expected_duration,
+                )
+                LOGGER.debug(
+                    "HLS remux duration expected=%s actual=%s fatal=%s recoverable=%s",
+                    f"{expected_duration:.3f}" if expected_duration is not None else "unknown",
+                    f"{duration:.3f}" if duration is not None else "unknown",
+                    detail or "",
+                    recoverable,
+                )
+            if error is None:
                 try:
                     _validate_output(executable, temporary, expected_duration)
                 except DownloadError as error:
                     last_error = str(error)
-                    complete = False
                 else:
                     break
-
-            if result.returncode or detail:
-                last_error = f"FFmpeg failed ({result.returncode}): {detail}"
-            elif not temporary.is_file() or temporary.stat().st_size == 0:
-                last_error = "FFmpeg produced no video"
+            else:
+                last_error = error
             if attempt == retries:
                 raise DownloadError(f"{last_error} after {attempt + 1} attempt(s)")
         else:

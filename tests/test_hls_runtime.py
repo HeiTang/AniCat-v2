@@ -59,6 +59,65 @@ def _generate_hls_fixture(executable: str, root: Path) -> None:
     )
 
 
+def _generate_audio_format_change_fixture(executable: str, root: Path) -> None:
+    base = [
+        executable,
+        "-nostdin",
+        "-y",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=blue:s=64x64:r=10",
+        "-f",
+        "lavfi",
+    ]
+    for index, (frequency, sample_rate, channels) in enumerate(((440, 44100, 1), (660, 48000, 2))):
+        subprocess.run(
+            [
+                *base,
+                "-i",
+                f"sine=frequency={frequency}:sample_rate={sample_rate}",
+                "-t",
+                "2",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-g",
+                "10",
+                "-keyint_min",
+                "10",
+                "-sc_threshold",
+                "0",
+                "-c:a",
+                "aac",
+                "-ac",
+                str(channels),
+                "-ar",
+                str(sample_rate),
+                "-f",
+                "mpegts",
+                str(root / f"format{index}.ts"),
+            ],
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+    (root / "index.m3u8").write_text(
+        "#EXTM3U\n"
+        "#EXT-X-VERSION:3\n"
+        "#EXT-X-TARGETDURATION:2\n"
+        "#EXTINF:2.000000,\n"
+        "format0.ts\n"
+        "#EXT-X-DISCONTINUITY\n"
+        "#EXTINF:2.000000,\n"
+        "format1.ts\n"
+        "#EXT-X-ENDLIST\n"
+    )
+
+
 def _reset_segment_counters(path: Path, initial: dict[int, int] | None = None) -> dict[int, int]:
     data = bytearray(path.read_bytes())
     counters = dict(initial or {})
@@ -239,6 +298,29 @@ class HlsRuntimeTests(unittest.TestCase):
                     origin, "counter-reset", f"{origin}/index.m3u8", stream_type="hls"
                 )
                 result = download_hls_episode(episode, root / "output", timeout=5)
+                self.assertGreater(result.bytes_written, 0)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+    def test_audio_format_change_is_remuxed_per_discontinuity_group(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = shutil.which("ffmpeg")
+            assert executable is not None
+            _generate_audio_format_change_fixture(executable, root)
+            server = ThreadingHTTPServer(
+                ("127.0.0.1", 0), functools.partial(QuietHandler, directory=directory)
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                origin = f"http://127.0.0.1:{server.server_port}"
+                episode = Episode(
+                    origin, "audio-format-change", f"{origin}/index.m3u8", stream_type="hls"
+                )
+                result = download_hls_episode(episode, root / "output", timeout=5, retries=0)
                 self.assertGreater(result.bytes_written, 0)
             finally:
                 server.shutdown()

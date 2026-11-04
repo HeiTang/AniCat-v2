@@ -1,15 +1,17 @@
 """Download and validate MPEG-TS HLS segments before handing them to FFmpeg.
 
 The provider occasionally resets MPEG-TS continuity counters at a media
-segment boundary. A reset at a boundary is recoverable; a gap inside one
-segment is not. This module keeps those two cases separate and never lets a
-missing or unvalidated segment reach the remuxer.
+segment boundary. A reset at an explicitly declared discontinuity boundary is
+recoverable; an unmarked reset or a gap inside one segment is not. This module
+keeps those cases separate and never lets a missing or unvalidated segment
+reach the remuxer.
 """
 
 from __future__ import annotations
 
 import hashlib
 import math
+import os
 import threading
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -634,3 +636,38 @@ def write_local_playlist(
     lines.append("#EXT-X-ENDLIST")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return tuple(normalizations)
+
+
+def write_group_playlists(
+    path: Path,
+    specs: tuple[SegmentSpec, ...],
+) -> tuple[tuple[Path, float], ...]:
+    """Split a normalized local playlist at explicit discontinuity boundaries."""
+
+    starts = [0] + [
+        index for index, spec in enumerate(specs) if index and spec.discontinuity_before
+    ]
+    groups: list[tuple[Path, float]] = []
+    group_directory = path.parent / "groups"
+    group_directory.mkdir(parents=True, exist_ok=True)
+    for group_index, start in enumerate(starts):
+        end = starts[group_index + 1] if group_index + 1 < len(starts) else len(specs)
+        group_specs = specs[start:end]
+        target_duration = max(1, math.ceil(max(spec.duration for spec in group_specs)))
+        group_path = group_directory / f"group-{group_index:03d}.m3u8"
+        lines = [
+            "#EXTM3U",
+            "#EXT-X-VERSION:3",
+            f"#EXT-X-TARGETDURATION:{target_duration}",
+            "#EXT-X-MEDIA-SEQUENCE:0",
+        ]
+        for index in range(start, end):
+            normalized = path.parent / "normalized" / f"segment-{index:06d}.ts"
+            if not normalized.is_file():
+                raise DownloadError(f"normalized HLS segment is missing: {normalized}")
+            lines.append(f"#EXTINF:{specs[index].duration:.6f},")
+            lines.append(Path(os.path.relpath(normalized, group_directory)).as_posix())
+        lines.append("#EXT-X-ENDLIST")
+        group_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        groups.append((group_path, sum(spec.duration for spec in group_specs)))
+    return tuple(groups)
