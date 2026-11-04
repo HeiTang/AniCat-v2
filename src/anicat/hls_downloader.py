@@ -402,10 +402,13 @@ def _decode_timestamp_options(executable: str) -> tuple[str, ...]:
         )
     except (OSError, subprocess.TimeoutExpired):
         version = None
-    major_match = re.search(
-        rb"ffmpeg version (\d+)", version.stdout if version is not None else b""
+    version_output = version.stdout if version is not None else b""
+    major_match = re.search(rb"ffmpeg version [nN]?(\d+)", version_output)
+    abi_match = re.search(rb"libavcodec\s+(\d+)", version_output)
+    modern = (major_match is not None and int(major_match.group(1)) >= 9) or (
+        major_match is None and abi_match is not None and int(abi_match.group(1)) >= 63
     )
-    if major_match is not None and int(major_match.group(1)) >= 9:
+    if modern:
         return ("-fps_mode", "passthrough", "-enc_time_base", "demux")
     return ("-vsync", "0", "-enc_time_base", "-1")
 
