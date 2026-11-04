@@ -163,7 +163,7 @@ def main() -> int:
     )
     label(
         intro,
-        "貼上 Anime1 網址，選好位置，其他交給 AniCat。\n目前支援 anime1.me 與 anime1.pw。",
+        "貼上支援的 Anime1 網址，選好位置，其他交給 AniCat。",
         font=body_font,
         fg=COLORS["muted"],
         justify="left",
