@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -115,6 +116,38 @@ class HlsRuntimeTests(unittest.TestCase):
                     )
                 self.assertEqual(result.path.read_bytes(), before)
                 self.assertEqual(list((root / "output").iterdir()), [result.path])
+                middle.write_bytes(middle_bytes)
+                for fault in ("503", "timeout"):
+
+                    class TransientHandler(QuietHandler):
+                        mode = fault
+                        attempts = 0
+
+                        def do_GET(self):
+                            if self.path.endswith(middle.name):
+                                type(self).attempts += 1
+                                if type(self).attempts == 1:
+                                    if self.mode == "503":
+                                        self.send_error(503)
+                                    else:
+                                        time.sleep(0.4)
+                                        self.close_connection = True
+                                    return
+                            super().do_GET()
+
+                    server.RequestHandlerClass = functools.partial(
+                        TransientHandler, directory=directory
+                    )
+                    with self.subTest(fault=fault):
+                        recovered = download_hls_episode(
+                            episode,
+                            root / "output",
+                            timeout=0.1,
+                            overwrite=True,
+                            retries=1,
+                        )
+                        self.assertGreaterEqual(TransientHandler.attempts, 2)
+                        self.assertGreater(recovered.bytes_written, 0)
             finally:
                 server.shutdown()
                 server.server_close()
