@@ -174,10 +174,19 @@ class FfmpegCompatibilityTests(unittest.TestCase):
             ("-vsync", "0", "-enc_time_base", "-1"),
         )
         run.return_value = subprocess.CompletedProcess(
-            [], 0, stdout=b"ffmpeg version 9.0 Copyright (c) 2000-2026"
+            [], 0, stdout=b"ffmpeg version n9.0.2-17-g2a571b6068-20260930"
         )
         self.assertEqual(
             _decode_timestamp_options("/new/ffmpeg"),
+            ("-fps_mode", "passthrough", "-enc_time_base", "demux"),
+        )
+        run.return_value = subprocess.CompletedProcess(
+            [],
+            0,
+            stdout=b"ffmpeg version N-nightly\nlibavcodec 63.0.0\n",
+        )
+        self.assertEqual(
+            _decode_timestamp_options("/nightly/ffmpeg"),
             ("-fps_mode", "passthrough", "-enc_time_base", "demux"),
         )
 
