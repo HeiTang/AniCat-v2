@@ -2,7 +2,24 @@
 
 本報告補充並保留[前一輪失敗紀錄](HLS_ACCEPTANCE_2026-11-04.md)，不以替換樣本掩蓋失敗。PR #16 維持開啟、不合併。
 
-## 驗收版本與方法
+## 分流補驗結果（22:55，f130d2a）
+
+**兩部都沒有找到「目前 PR 可下載」的頁面所列來源；不是所有來源都失效。** 使用當時最新 HEAD `f130d2a723725efedd8424e6c4c2c61e01e2bfd4` 的獨立程式快照，確認頁面所有分流並逐一執行正式 `download_hls_episode`。來源已可連線，但四個 media playlist 均明確宣告 `METHOD=AES-128`，被現有不支援加密 HLS 的驗證拒絕。
+
+| 作品 | 頁面分流／播放器 | playlist 主機 | 宣告段數 | 最新結果 |
+|---|---|---|---:|---|
+| 聖鬥士星矢 [01] | 分流1，`/_player_x_/1329462` | `vv.jisuzyv.com` | 417 | AES-128；目前版本不支援 |
+| 聖鬥士星矢 [01] | 分流2，`/_player_x_/1329454` | `hd.kuktxu.com` | 402 | AES-128；目前版本不支援 |
+| 聖鬥士星矢 [01] | 分流3，`/_player_x_/1329458` | `play.xluuss.com` | 402 | AES-128；目前版本不支援 |
+| 範馬刃牙 第二季 [27] | 頁面唯一 `/_player` | `vv.jisuzyv.com` | 404 | AES-128；目前版本不支援，沒有其他列出的分流 |
+
+每個來源正式入口均取得兩次 playlist，回報 `unsupported HLS encryption method: AES-128 after 2 preflight attempt(s)`。**驗證／下載段數為 0，未產生 MP4、未執行全片解碼，不算驗收通過。** 表中段數只是 playlist 宣告值，不能當成完成下載。
+
+分流2／3為驗收程式依頁面按鈕明確選取後直接呼叫現有下載後端；未新增 CLI 分流選擇或自動 fallback。這輪只更新驗收文件，未放寬加密格式拒絕。分流清單限於兩個指定作品頁當時列出的選項，未宣稱全網無其他來源。
+
+[四筆分流補驗證據](hls-alternate-streams-2026-11-04.jsonl)包含頁面／播放器 SHA-256、選定分流、playlist 主機與 URL、兩次 manifest 雜湊、AES 方法、宣告段數、錯誤、空成品清單與時間。前輪連線逾時以及更早的 decode failure 保留在原紀錄中，最新阻擋原因更新為「來源可連線但 AES-128 不支援」。PR 繼續保持開啟，不合併。
+
+## 前輪驗收版本與方法
 
 下載、分段驗證、分組轉封裝與成品驗證均使用 `af8b56ed198b258265c8d63279a9d68f605d3a50` 的獨立 `git archive` 快照。`d5fb5a5` 啟動的兩部驗收在 CI 發現 FFmpeg 新版診斷格式差異後主動中止，不計通過或失敗；以下全部重新由 `af8b56e` 開始。每部使用新輸出目錄，實際重新取得完整來源，沒有利用既有成品跳過。環境：macOS ARM64、Python 3.14.5、FFmpeg 4.4。
 
@@ -15,7 +32,7 @@
 7. 所有未知 warning、`Packet corrupt`、AAC `Queue input is backward in time` 都是 fatal。僅接受已界定的音訊 mux DTS 校正（48 kHz 下不超過 4800 samples，100 ms），保留原診斷供查核，不直接忽略。
 8. 成品先由下載器完整解碼，再由驗收 runner 獨立完整解碼；兩者都要求 exit code 0 且 stderr 空，通過才算成功。失敗不得覆寫既有 MP4。
 
-## 最新 HEAD 真實上游結果
+## 前輪完整下載結果（af8b56e）
 
 **本輪 5/7 通過；前一輪四個 discontinuity 拒絕項目均通過，兩部 CDN 逾時仍未通過。**
 
