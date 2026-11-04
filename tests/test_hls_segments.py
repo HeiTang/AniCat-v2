@@ -107,12 +107,63 @@ class PlaylistParsingTests(unittest.TestCase):
         fixtures = (
             '#EXT-X-MAP:URI="init.mp4"',
             "#EXT-X-BYTERANGE:188@0",
-            '#EXT-X-KEY:METHOD=AES-128,URI="key"',
+            '#EXT-X-KEY:METHOD=SAMPLE-AES,URI="key"',
+            '#EXT-X-KEY:METHOD=AES-128,URI="key",KEYFORMAT="com.example"',
             "#EXT-X-GAP",
         )
         for tag in fixtures:
             with self.subTest(tag=tag):
                 playlist = f"#EXTM3U\n#EXTINF:1,\n{tag}\nsegment.ts\n#EXT-X-ENDLIST\n"
+                with self.assertRaises(DownloadError):
+                    parse_media_segments(playlist, "https://cdn.test/index.m3u8")
+
+    def test_aes_key_rotation_explicit_and_implicit_ivs(self):
+        playlist = (
+            "#EXTM3U\n"
+            "#EXT-X-MEDIA-SEQUENCE:7\n"
+            '#EXT-X-KEY:METHOD=AES-128,URI="keys/a.key"\n'
+            "#EXTINF:1,\n"
+            "a.ts\n"
+            "#EXTINF:1,\n"
+            "b.ts\n"
+            '#EXT-X-KEY:METHOD=AES-128,URI="../keys/b.key",IV=0x2a,'
+            'KEYFORMAT="identity",KEYFORMATVERSIONS="1/2"\n'
+            "#EXTINF:1,\n"
+            "c.ts\n"
+            "#EXT-X-KEY:METHOD=NONE\n"
+            "#EXTINF:1,\n"
+            "d.ts\n"
+            "#EXT-X-ENDLIST\n"
+        )
+        specs = parse_media_segments(playlist, "https://cdn.test/path/index.m3u8")
+        self.assertEqual([spec.sequence for spec in specs], [7, 8, 9, 10])
+        self.assertIsNotNone(specs[0].key)
+        assert specs[0].key is not None
+        self.assertEqual(specs[0].key.uri, "https://cdn.test/path/keys/a.key")
+        self.assertEqual(specs[0].key.iv, (7).to_bytes(16, "big"))
+        second_key = specs[1].key
+        assert second_key is not None
+        self.assertEqual(specs[0].key.declaration, second_key.declaration)
+        self.assertEqual(second_key.iv, (8).to_bytes(16, "big"))
+        self.assertIsNotNone(specs[2].key)
+        assert specs[2].key is not None
+        self.assertEqual(specs[2].key.uri, "https://cdn.test/keys/b.key")
+        self.assertEqual(specs[2].key.iv, bytes.fromhex("00" * 15 + "2a"))
+        self.assertNotEqual(second_key.declaration, specs[2].key.declaration)
+        self.assertIsNone(specs[3].key)
+
+    def test_aes_key_invalid_attributes_are_rejected(self):
+        fixtures = (
+            '#EXT-X-KEY:METHOD=AES-128,URI="key",IV=0x',
+            '#EXT-X-KEY:METHOD=AES-128,URI="key",IV=0x' + "0" * 33,
+            '#EXT-X-KEY:METHOD=AES-128,URI="key",IV=0x' + "0" * 30 + " 01",
+            '#EXT-X-KEY:METHOD=AES-128,URI="key",KEYFORMATVERSIONS="2"',
+            '#EXT-X-KEY:METHOD=AES-128,URI="file:///tmp/key"',
+            '#EXT-X-KEY:METHOD=NONE,URI="key"',
+        )
+        for tag in fixtures:
+            with self.subTest(tag=tag):
+                playlist = f"#EXTM3U\n{tag}\n#EXTINF:1,\nsegment.ts\n"
                 with self.assertRaises(DownloadError):
                     parse_media_segments(playlist, "https://cdn.test/index.m3u8")
 

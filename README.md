@@ -69,7 +69,9 @@ counter。中段 404、短讀取、掉 packet 或未通過結構檢查時，整�
 只有 playlist 明示 `#EXT-X-DISCONTINUITY` 的邊界才允許 CC/時間軸重設；FFmpeg 使用保留原始
 段證據的 header-only CC 正規化副本，不會用 warning whitelist 掩蓋 Packet corrupt。
 完成後仍以 FFmpeg progress duration 與 `#EXTINF` 總長比對，並做全片解碼驗證；live playlist、
-AES-128/SAMPLE-AES、fMP4、byte-range 與 `#EXT-X-GAP` 目前明確拒絕，不會當成成功。
+AES-128（identity key format）支援 CBC/PKCS7、key rotation、明示 IV 與 media-sequence 隱式 IV；
+每個 key 都要求 HTTP 完整 16 bytes，僅留在記憶體，不會寫入 log 或暫存檔。SAMPLE-AES、fMP4、
+byte-range 與 `#EXT-X-GAP` 仍明確拒絕，不會當成成功。
 
 ```bash
 anicat https://anime1.cc/681899930-01-0142

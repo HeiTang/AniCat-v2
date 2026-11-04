@@ -20,6 +20,8 @@ from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 import requests
+from cryptography.hazmat.primitives import padding
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 from .errors import DownloadError
 
@@ -40,12 +42,23 @@ class SegmentIntegrityError(DownloadError):
 
 
 @dataclass(frozen=True)
+class HlsKey:
+    """The resolved identity AES-128 key URI and per-segment IV."""
+
+    uri: str
+    iv: bytes
+    declaration: int = 0
+
+
+@dataclass(frozen=True)
 class SegmentSpec:
     """One media segment from a final HLS media playlist."""
 
     uri: str
     duration: float
     discontinuity_before: bool = False
+    key: HlsKey | None = None
+    sequence: int = 0
 
 
 @dataclass(frozen=True)
@@ -97,6 +110,9 @@ class DownloadedSegment:
     path: Path
     inspection: SegmentInspection
     attempts: int = 1
+    encrypted: bool = False
+    ciphertext_size: int | None = None
+    ciphertext_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -111,12 +127,16 @@ class SegmentBatch:
         """Return compact, structured evidence for logs and acceptance tests."""
 
         return {
+            "encrypted_segments": sum(item.encrypted for item in self.segments),
             "segments": [
                 {
                     "index": item.inspection.segment_index,
                     "bytes": item.inspection.size,
                     "sha256": item.inspection.sha256,
                     "attempts": item.attempts,
+                    "encrypted": item.encrypted,
+                    "ciphertext_bytes": item.ciphertext_size,
+                    "ciphertext_sha256": item.ciphertext_sha256,
                 }
                 for item in self.segments
             ],
@@ -170,12 +190,59 @@ def _parse_attribute(attributes: str, wanted: str) -> str | None:
     return None
 
 
+def _resolve_key_uri(raw_uri: str, playlist_url: str) -> str:
+    """Resolve an AES key URI while allowing only ordinary HTTP(S) fetches."""
+
+    absolute_uri = urljoin(playlist_url, raw_uri)
+    try:
+        parsed = urlparse(absolute_uri)
+        has_userinfo = parsed.username is not None or parsed.password is not None
+    except ValueError as error:
+        raise DownloadError("unsupported HLS AES-128 key URI") from error
+    if (
+        parsed.scheme.lower() not in {"http", "https"}
+        or not parsed.netloc
+        or has_userinfo
+        or any(character.isspace() for character in absolute_uri)
+    ):
+        raise DownloadError("unsupported HLS AES-128 key URI")
+    return absolute_uri
+
+
+def _parse_key_iv(raw_iv: str | None, sequence: int) -> bytes:
+    """Parse an explicit 128-bit IV or derive the RFC 8216 implicit IV."""
+
+    if raw_iv is None:
+        try:
+            return sequence.to_bytes(16, "big", signed=False)
+        except OverflowError as error:
+            raise DownloadError("HLS media sequence is too large for an AES-128 IV") from error
+    hex_digits = raw_iv[2:]
+    if (
+        not raw_iv.lower().startswith("0x")
+        or not 1 <= len(hex_digits) <= 32
+        or any(character not in "0123456789abcdefABCDEF" for character in hex_digits)
+    ):
+        raise DownloadError("invalid HLS AES-128 IV; expected 16-byte hexadecimal value")
+    try:
+        iv = bytes.fromhex(raw_iv[2:].zfill(32))
+    except ValueError as error:
+        raise DownloadError("invalid HLS AES-128 IV; expected 16-byte hexadecimal value") from error
+    if len(iv) != 16:
+        raise DownloadError("invalid HLS AES-128 IV; expected 16-byte hexadecimal value")
+    return iv
+
+
 def parse_media_segments(playlist: str, playlist_url: str) -> tuple[SegmentSpec, ...]:
     """Parse a final MPEG-TS media playlist and reject unsupported HLS modes."""
 
     segments: list[SegmentSpec] = []
     pending_duration: float | None = None
     pending_discontinuity = False
+    media_sequence = 0
+    current_key_uri: str | None = None
+    current_key_iv: bytes | None = None
+    key_declaration = 0
     for raw_line in playlist.splitlines():
         line = raw_line.strip()
         if not line:
@@ -186,10 +253,59 @@ def parse_media_segments(playlist: str, playlist_url: str) -> tuple[SegmentSpec,
             raise DownloadError("unsupported HLS byte-range segment")
         if line.startswith("#EXT-X-GAP"):
             raise DownloadError("unsupported HLS gap segment")
+        if line.startswith("#EXT-X-MEDIA-SEQUENCE:"):
+            if segments:
+                raise DownloadError("HLS media sequence appears after a segment")
+            raw_sequence = line.partition(":")[2].strip()
+            try:
+                media_sequence = int(raw_sequence)
+            except ValueError as error:
+                raise DownloadError(f"invalid HLS media sequence: {raw_sequence}") from error
+            if media_sequence < 0:
+                raise DownloadError(f"invalid HLS media sequence: {raw_sequence}")
+            continue
         if line.startswith("#EXT-X-KEY:"):
-            method = _parse_attribute(line.partition(":")[2], "METHOD")
-            if method is None or method.upper() != "NONE":
-                raise DownloadError(f"unsupported HLS encryption method: {method or 'unknown'}")
+            attributes = line.partition(":")[2]
+            method = _parse_attribute(attributes, "METHOD")
+            if method is None:
+                raise DownloadError("HLS EXT-X-KEY is missing METHOD")
+            key_format = _parse_attribute(attributes, "KEYFORMAT")
+            if key_format is not None and key_format.lower() != "identity":
+                raise DownloadError("unsupported HLS AES-128 KEYFORMAT")
+            key_format_versions = _parse_attribute(attributes, "KEYFORMATVERSIONS")
+            if key_format_versions is not None:
+                versions = key_format_versions.split("/")
+                if (
+                    not versions
+                    or any(
+                        not version or any(character not in "0123456789" for character in version)
+                        for version in versions
+                    )
+                    or "1" not in versions
+                ):
+                    raise DownloadError("unsupported HLS identity KEYFORMATVERSIONS")
+            key_declaration += 1
+            if method.upper() == "NONE":
+                if any(
+                    _parse_attribute(attributes, name) is not None
+                    for name in ("URI", "IV", "KEYFORMAT", "KEYFORMATVERSIONS")
+                ):
+                    raise DownloadError("HLS METHOD=NONE must not carry key attributes")
+                current_key_uri = None
+                current_key_iv = None
+            elif method.upper() == "AES-128":
+                raw_key_uri = _parse_attribute(attributes, "URI")
+                if not raw_key_uri:
+                    raise DownloadError("HLS AES-128 key is missing URI")
+                current_key_uri = _resolve_key_uri(raw_key_uri, playlist_url)
+                raw_iv = _parse_attribute(attributes, "IV")
+                if raw_iv is None:
+                    _parse_key_iv(None, media_sequence + len(segments))
+                    current_key_iv = None
+                else:
+                    current_key_iv = _parse_key_iv(raw_iv, media_sequence + len(segments))
+            else:
+                raise DownloadError(f"unsupported HLS encryption method: {method}")
         if line.startswith(("#EXT-X-PART:", "#EXT-X-PRELOAD-HINT:")):
             raise DownloadError("unsupported HLS low-latency playlist")
         if line.startswith("#EXT-X-I-FRAMES-ONLY"):
@@ -216,11 +332,20 @@ def parse_media_segments(playlist: str, playlist_url: str) -> tuple[SegmentSpec,
         suffix = urlparse(absolute_uri).path.lower()
         if suffix.endswith((".m4s", ".mp4", ".cmfv", ".cmfa")):
             raise DownloadError("unsupported HLS fMP4 media segment")
+        sequence = media_sequence + len(segments)
+        key = None
+        if current_key_uri is not None:
+            iv = current_key_iv
+            if iv is None:
+                iv = _parse_key_iv(None, sequence)
+            key = HlsKey(current_key_uri, iv, key_declaration)
         segments.append(
             SegmentSpec(
                 absolute_uri,
                 pending_duration,
                 pending_discontinuity,
+                key,
+                sequence,
             )
         )
         pending_duration = None
@@ -440,6 +565,105 @@ def _retryable_http_status(status_code: int) -> bool:
     return status_code == 429 or 500 <= status_code <= 599
 
 
+def _fetch_key(
+    key: HlsKey,
+    index: int,
+    *,
+    headers: Mapping[str, str],
+    cookies: Mapping[str, str],
+    timeout: float,
+    retries: int,
+    cache: dict[tuple[str, int], bytes],
+    cache_lock: threading.Lock,
+) -> bytes:
+    """Fetch one identity AES key into an in-memory, declaration-scoped cache."""
+
+    cache_key = (key.uri, key.declaration)
+    with cache_lock:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        last_error: Exception | None = None
+        for attempt in range(retries + 1):
+            response: requests.Response | None = None
+            retryable = False
+            try:
+                response = _thread_session().get(
+                    key.uri,
+                    headers={**headers, "Accept-Encoding": "identity"},
+                    cookies=dict(cookies),
+                    stream=True,
+                    timeout=(timeout, timeout),
+                )
+                if response.status_code != 200:
+                    retryable = _retryable_http_status(response.status_code)
+                    raise DownloadError(
+                        f"HTTP {response.status_code} for AES key at segment {index}"
+                    )
+                if response.headers.get("Content-Range"):
+                    raise DownloadError(f"unexpected Content-Range for AES key at segment {index}")
+                content_encoding = response.headers.get("Content-Encoding", "identity").lower()
+                if content_encoding not in {"", "identity"}:
+                    raise DownloadError(
+                        f"unexpected Content-Encoding for AES key at segment {index}"
+                    )
+                raw_length = response.headers.get("Content-Length")
+                expected_length: int | None = None
+                if raw_length is not None:
+                    try:
+                        expected_length = int(raw_length)
+                    except ValueError as error:
+                        raise DownloadError(
+                            f"invalid Content-Length for AES key at segment {index}"
+                        ) from error
+                    if expected_length != 16:
+                        raise DownloadError(f"AES key is not exactly 16 bytes at segment {index}")
+                body = bytearray()
+                for chunk in response.iter_content(chunk_size=_CHUNK_SIZE):
+                    if chunk:
+                        body.extend(chunk)
+                        if len(body) > 16:
+                            raise DownloadError(
+                                f"AES key is not exactly 16 bytes at segment {index}"
+                            )
+                if len(body) != 16:
+                    retryable = True
+                    raise DownloadError(f"truncated AES key at segment {index}")
+                value = bytes(body)
+                cache[cache_key] = value
+                return value
+            except (requests.RequestException, OSError, DownloadError) as error:
+                last_error = error
+                if isinstance(error, requests.RequestException):
+                    retryable = True
+                if attempt >= retries or not retryable:
+                    break
+            finally:
+                if response is not None:
+                    response.close()
+    detail = str(last_error) if last_error is not None else "unknown AES key failure"
+    raise DownloadError(detail)
+
+
+def _decrypt_aes128(ciphertext: bytes, key: bytes, iv: bytes, index: int) -> bytes:
+    """Decrypt one AES-128-CBC segment and remove its RFC 5652 PKCS7 padding."""
+
+    if not ciphertext or len(ciphertext) % 16:
+        raise SegmentIntegrityError(
+            "invalid_aes_ciphertext",
+            f"segment {index} ciphertext is not a non-empty AES block sequence",
+        )
+    try:
+        decryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).decryptor()
+        padded = decryptor.update(ciphertext) + decryptor.finalize()
+        unpadder = padding.PKCS7(128).unpadder()
+        return unpadder.update(padded) + unpadder.finalize()
+    except ValueError as error:
+        raise SegmentIntegrityError(
+            "invalid_aes_padding", f"segment {index} has invalid padding"
+        ) from error
+
+
 def _download_one(
     spec: SegmentSpec,
     index: int,
@@ -449,16 +673,20 @@ def _download_one(
     cookies: Mapping[str, str],
     timeout: float,
     retries: int,
+    key_cache: dict[tuple[str, int], bytes],
+    key_cache_lock: threading.Lock,
 ) -> DownloadedSegment:
     """Download one segment from scratch on each bounded retry."""
 
     path = directory / f"segment-{index:06d}.ts"
     partial = directory / f"segment-{index:06d}.part"
+    decrypted_partial = directory / f"segment-{index:06d}.decrypted.part"
     last_error: Exception | None = None
     attempts = 0
     for attempt in range(retries + 1):
         attempts = attempt + 1
         partial.unlink(missing_ok=True)
+        decrypted_partial.unlink(missing_ok=True)
         response: requests.Response | None = None
         retryable = False
         try:
@@ -499,8 +727,34 @@ def _download_one(
                 raise DownloadError(
                     f"truncated segment {index}: expected {expected_length} bytes, got {written}"
                 )
-            data = partial.read_bytes()
+            ciphertext = partial.read_bytes()
+            if spec.key is not None:
+                key_bytes = _fetch_key(
+                    spec.key,
+                    index,
+                    headers=headers,
+                    cookies=cookies,
+                    timeout=timeout,
+                    retries=retries,
+                    cache=key_cache,
+                    cache_lock=key_cache_lock,
+                )
+                data = _decrypt_aes128(ciphertext, key_bytes, spec.key.iv, index)
+            else:
+                data = ciphertext
             inspection = inspect_ts_segment(data, index)
+            if spec.key is not None:
+                decrypted_partial.write_bytes(data)
+                decrypted_partial.replace(path)
+                partial.unlink(missing_ok=True)
+                return DownloadedSegment(
+                    path,
+                    inspection,
+                    attempts,
+                    True,
+                    len(ciphertext),
+                    hashlib.sha256(ciphertext).hexdigest(),
+                )
             partial.replace(path)
             return DownloadedSegment(path, inspection, attempts)
         except (requests.RequestException, OSError, DownloadError) as error:
@@ -514,6 +768,7 @@ def _download_one(
                 response.close()
         # A retry always starts from byte zero; no unverified partial is reused.
     partial.unlink(missing_ok=True)
+    decrypted_partial.unlink(missing_ok=True)
     detail = str(last_error) if last_error is not None else "unknown segment failure"
     raise DownloadError(f"HLS segment {index} failed after {attempts} attempt(s): {detail}")
 
@@ -541,6 +796,8 @@ def download_segments(
     directory.mkdir(parents=True, exist_ok=True)
     request_headers = dict(headers or {})
     request_cookies = dict(cookies or {})
+    key_cache: dict[tuple[str, int], bytes] = {}
+    key_cache_lock = threading.Lock()
     downloaded: list[DownloadedSegment | None] = [None] * len(specs)
     worker_count = min(workers, len(specs))
     with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="anicat-hls") as pool:
@@ -554,6 +811,8 @@ def download_segments(
                 cookies=request_cookies,
                 timeout=timeout,
                 retries=retries,
+                key_cache=key_cache,
+                key_cache_lock=key_cache_lock,
             ): index
             for index, spec in enumerate(specs)
         }
