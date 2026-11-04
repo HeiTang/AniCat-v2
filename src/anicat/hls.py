@@ -32,8 +32,14 @@ def parse_hls_episode(html: str, page_url: str, fetch_page: PageFetcher) -> tupl
     if title is None or not title.get_text(strip=True):
         raise ParseError("episode page is missing title")
 
-    for iframe in soup.select("iframe[src]"):
-        src = iframe.get("src")
+    players = [iframe.get("src") for iframe in soup.select("iframe[src]")]
+    if source_kind(page_url) == "anime1_in" and urlparse(page_url).fragment == "other":
+        alternatives = soup.select("button.play-select[url]")
+        if len(alternatives) < 2:
+            raise ParseError("requested alternate player is missing from the episode page")
+        players = [alternatives[1].get("url")]
+
+    for src in players:
         if not isinstance(src, str):
             continue
         player_url = urljoin(page_url, src)

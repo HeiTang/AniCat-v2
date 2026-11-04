@@ -39,6 +39,31 @@ class HlsParserTests(unittest.TestCase):
             )
         fetch.assert_not_called()
 
+    def test_in_other_fragment_selects_the_sites_second_stream(self):
+        fetch = Mock(return_value='<video><source src="/alternate/index.m3u8"></video>')
+        html = (
+            '<h1 class="entry-title">動畫</h1><iframe src="/_player_x_/1"></iframe>'
+            '<button class="play-select" url="/_player_x_/1">分流1</button>'
+            '<button class="play-select" url="/_player_x_/2">分流2</button>'
+        )
+        playlist, _title = parse_hls_episode(html, "https://anime1.in/show-10001000#other", fetch)
+        self.assertEqual(playlist, "https://anime1.in/alternate/index.m3u8")
+        fetch.assert_called_once_with("https://anime1.in/_player_x_/2")
+
+    def test_alternate_stream_never_fetches_external_or_missing_player(self):
+        for second in (
+            '<button class="play-select" url="https://other.example/_player_x_/2">2</button>',
+            "",
+        ):
+            fetch = Mock()
+            html = (
+                '<h1 class="entry-title">動畫</h1><iframe src="/_player_x_/1"></iframe>'
+                '<button class="play-select" url="/_player_x_/1">1</button>' + second
+            )
+            with self.subTest(second=second), self.assertRaises(ParseError):
+                parse_hls_episode(html, "https://anime1.in/show-10001000#other", fetch)
+            fetch.assert_not_called()
+
     def test_missing_title_fails_without_fetch(self):
         fetch = Mock()
         with self.assertRaises(ParseError):
