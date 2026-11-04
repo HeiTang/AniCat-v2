@@ -119,8 +119,7 @@ class SegmentBatch:
                 for item in self.segments
             ],
             "boundaries": [
-                {"index": item.index, "classification": item.label}
-                for item in self.boundaries
+                {"index": item.index, "classification": item.label} for item in self.boundaries
             ],
         }
 
@@ -188,9 +187,7 @@ def parse_media_segments(playlist: str, playlist_url: str) -> tuple[SegmentSpec,
         if line.startswith("#EXT-X-KEY:"):
             method = _parse_attribute(line.partition(":")[2], "METHOD")
             if method is None or method.upper() != "NONE":
-                raise DownloadError(
-                    f"unsupported HLS encryption method: {method or 'unknown'}"
-                )
+                raise DownloadError(f"unsupported HLS encryption method: {method or 'unknown'}")
         if line.startswith(("#EXT-X-PART:", "#EXT-X-PRELOAD-HINT:")):
             raise DownloadError("unsupported HLS low-latency playlist")
         if line.startswith("#EXT-X-I-FRAMES-ONLY"):
@@ -251,9 +248,7 @@ def _payload_start(packet: bytes) -> int | None:
     else:
         payload_start = 4
     return (
-        payload_start
-        if adaptation_control in (1, 3) and payload_start < TS_PACKET_SIZE
-        else None
+        payload_start if adaptation_control in (1, 3) and payload_start < TS_PACKET_SIZE else None
     )
 
 
@@ -267,12 +262,7 @@ def _has_discontinuity_indicator(packet: bytes) -> bool:
 def _decode_pts(value: bytes) -> int | None:
     """Decode the five-byte MPEG PES PTS field when marker bits are valid."""
 
-    if (
-        len(value) < 5
-        or (value[0] & 1) != 1
-        or (value[2] & 1) != 1
-        or (value[4] & 1) != 1
-    ):
+    if len(value) < 5 or (value[0] & 1) != 1 or (value[2] & 1) != 1 or (value[4] & 1) != 1:
         return None
     return (
         ((value[0] >> 1) & 0x07) << 30
@@ -433,8 +423,7 @@ def classify_boundaries(
         if not specs[index].discontinuity_before:
             raise SegmentIntegrityError(
                 "unmarked_boundary_discontinuity",
-                f"segment boundary {index} has {', '.join(reasons)} without "
-                "#EXT-X-DISCONTINUITY",
+                f"segment boundary {index} has {', '.join(reasons)} without #EXT-X-DISCONTINUITY",
             )
         boundaries.append(
             BoundaryEvidence(

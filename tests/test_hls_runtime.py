@@ -161,17 +161,13 @@ class HlsRuntimeTests(unittest.TestCase):
                     if pid != 256:
                         continue
                     adaptation_control = (packet[3] >> 4) & 0x03
-                    payload_start = (
-                        5 + packet[4] if adaptation_control in (2, 3) else 4
-                    )
+                    payload_start = 5 + packet[4] if adaptation_control in (2, 3) else 4
                     payload = packet[payload_start:]
                     if packet[1] & 0x40 and payload[:3] == b"\0\0\1":
                         payload_start += 9 + payload[8]
                     else:
                         payload_start += 20
-                    corrupted[start + payload_start : start + 188] = b"\0" * (
-                        188 - payload_start
-                    )
+                    corrupted[start + payload_start : start + 188] = b"\0" * (188 - payload_start)
                     damaged_video_packets += 1
                     if damaged_video_packets == 10:
                         break
