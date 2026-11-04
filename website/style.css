@@ -350,6 +350,7 @@ footer {
     padding-right: 22px;
   }
   header {
+    display: block;
     align-items: flex-start;
   }
   .brand span {
@@ -358,6 +359,27 @@ footer {
   nav {
     gap: 14px;
     font-size: 11px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    row-gap: 6px;
+    margin-top: 12px;
+    min-width: 0;
+  }
+  .hero > div,
+  .start-grid > div {
+    min-width: 0;
+  }
+  .demo,
+  .terminal {
+    min-width: 0;
+  }
+  .window {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .terminal p {
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
   .hero {
     grid-template-columns: 1fr;

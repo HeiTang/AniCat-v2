@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="AniCat 是開源 Anime1 下載工具。查看支援來源、安裝步驟與使用範例，從搜尋到下載一次上手。"
+      content="AniCat 是開源 Anime1 下載工具。貼上網址，將單集、整季或多個影片下載到自己的電腦。"
     />
     <meta name="theme-color" content="#f4f1e9" />
     <title>AniCat — 把想看的，留在本機。</title>
@@ -27,14 +27,14 @@
           <p class="eyebrow">OPEN SOURCE · LOCAL FILES · YOUR PACE</p>
           <h1>把想看的，<br />留在本機<span class="orange">。</span></h1>
           <p class="intro">
-            貼上 Anime1 網址，下載單集或整季。<br />讓搜尋、批次下載與進度管理，留在同一個工具裡。
+            貼上 Anime1 網址，下載單集、整季或多個網址。<br />影片會留在你的電腦，不用在網頁上等待播放。
           </p>
           <div class="actions">
             <a class="button" href="#start">開始第一次下載 <span>↗</span></a
             ><a class="plain" href="#how">先看看怎麼用 ↓</a>
           </div>
           <p class="note">
-            目前提供命令列工具 · Python 3.12+ · GPL-3.0 授權文件
+            目前先用終端機操作 · 需要 Python 3.12+ · GPL-3.0 授權文件
           </p>
         </div>
         <div class="demo" aria-label="下載指令示意">
@@ -45,8 +45,8 @@
             <p class="muted"># 貼上單集網址</p>
             <p><span class="prompt">❯</span> anicat https://anime1.me/15651</p>
             <div class="rule"></div>
-            <p class="muted"># 或先搜尋想看的作品</p>
-            <p><span class="prompt">❯</span> anicat search 碧藍之海</p>
+            <p class="muted"># 也可以貼上分類或季度網址</p>
+            <p><span class="prompt">❯</span> anicat https://anime1.me/category/your-category</p>
             <div class="file">
               <span>↳</span>
               <div>Anime1_Download/<small>影片預設儲存在這裡</small></div>
@@ -58,8 +58,8 @@
       </section>
       <section class="strip">
         <div class="wrap strip-inner">
-          <span>單集／整季</span><span>多網址批次</span><span>MP4 斷點續傳</span
-          ><span>併發與進度顯示</span>
+          <span>單集／整季</span><span>多網址批次</span><span>MP4 中斷可續傳</span
+          ><span>同時下載與進度顯示</span>
         </div>
       </section>
       <section class="wrap section" id="how">
@@ -72,23 +72,23 @@
             <span class="number">01</span>
             <h3>找到想看的</h3>
             <p>
-              貼上支援站點的單集或全集網址，也可以用搜尋指令查詢 anime1.me
-              目錄。
+              先在支援站點找到作品，再貼上單集、分類或季度網址；不用記住額外的搜尋指令。
             </p>
           </article>
           <article>
             <span class="number">02</span>
             <h3>一次處理多集</h3>
             <p>
-              同時提供多個網址，或交給工具展開整季。用併發參數控制同時下載數。
+              一次貼上多個網址，或交給工具展開整季。需要時再用
+              <code>-c</code> 調整同時下載的集數。
             </p>
           </article>
           <article>
             <span class="number">03</span>
             <h3>留在你的資料夾</h3>
             <p>
-              輸出 MP4 檔案。Direct MP4
-              來源預設保留暫存進度，下次執行可接續下載。
+              對能直接提供 MP4 影片的來源，下載中會先保留
+              <code>.mp4.part</code> 暫存檔；中斷後重新執行相同指令，就能從暫存位置接著下載。
             </p>
           </article>
         </div>
@@ -102,11 +102,13 @@
               先安裝
               <a href="https://docs.astral.sh/uv/getting-started/installation/"
                 >uv</a
-              >，再開啟終端機。以下指令安裝 GitHub 的 v0.3.0 版本；需要 Git。
+              >（用來安裝 Python 工具的管理程式），再開啟終端機。以下指令安裝 GitHub
+              的 v0.3.0 版本；電腦也需要 Git。
             </p>
             <p class="note">
-              PyPI 套件預計命名為 anicat，目前尚未發布，請使用這裡的 GitHub
-              安裝方式。新站 HLS 功能目前在開發版本中。
+              PyPI 套件預計命名為 <code>anicat</code>，目前尚未發布，請使用這裡的 GitHub
+              安裝方式。桌面介面與新站支援仍在開發中、尚未發布。
+              開發版桌面介面安裝時會一起準備影片處理工具，檢查失敗時也會提供修復說明。
             </p>
           </div>
           <div class="commands">
@@ -129,8 +131,9 @@
               <pre><code>anicat URL1 URL2 -o ./Videos -c 2
 anicat --help</code></pre>
               <p>
-                把 URL1、URL2 換成實際網址。預設資料夾是目前位置下的
-                Anime1_Download。
+                把 URL1、URL2 換成實際網址。<code>-o</code> 指定輸出資料夾，
+                <code>-c 2</code> 代表同時下載 2 集；不指定時會使用目前位置下的
+                Anime1_Download。這些是進階設定，不改也能先下載。
               </p>
             </details>
             <p id="copy-status" role="status" aria-live="polite"></p>
@@ -159,22 +162,22 @@ anicat --help</code></pre>
               <tr>
                 <th scope="row">anime1.me</th>
                 <td><span class="badge">已支援</span></td>
-                <td>單集、分類／季度 · Direct MP4 · 可續傳</td>
+                <td>單集、分類／季度 · 可直接取得 MP4 · 中斷可續傳</td>
               </tr>
               <tr>
                 <th scope="row">anime1.pw</th>
                 <td><span class="badge">已支援</span></td>
-                <td>單集、分類／季度 · Direct MP4 · 可續傳</td>
+                <td>單集、分類／季度 · 可直接取得 MP4 · 中斷可續傳</td>
               </tr>
               <tr>
                 <th scope="row">anime1.cc</th>
                 <td><span class="badge pending">開發中</span></td>
-                <td>HLS · 需要 FFmpeg · 已通過單集完整下載驗證 · 尚未發布</td>
+                <td>串流影片下載 · 開發版會一起準備所需工具 · 尚未發布</td>
               </tr>
               <tr>
                 <th scope="row">anime1.in</th>
                 <td><span class="badge pending">開發中</span></td>
-                <td>HLS · 需要 FFmpeg · 已通過單集完整下載驗證 · 尚未發布</td>
+                <td>串流影片下載 · 開發版會一起準備所需工具 · 尚未發布</td>
               </tr>
             </tbody>
           </table>
@@ -196,9 +199,9 @@ anicat --help</code></pre>
           <details>
             <summary>下載失敗後能接續嗎？</summary>
             <p>
-              Direct MP4 預設使用同資料夾內的 .mp4.part
-              暫存檔續傳。不要刪掉暫存檔，重新執行原指令即可。開發中的 HLS
-              目前失敗後會從頭下載。
+              可以。能直接取得 MP4 的來源會在同資料夾留下
+              <code>.mp4.part</code> 暫存檔；它不是最後完成的影片，請不要刪除。重新執行原指令即可從暫存位置繼續。
+              開發中的串流影片目前失敗後會從頭下載，尚未發布。
             </p>
           </details>
           <details>
