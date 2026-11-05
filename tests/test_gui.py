@@ -3,7 +3,7 @@ from pathlib import Path
 from queue import Queue
 from unittest.mock import patch
 
-from anicat.gui import GuiEvent, run_download
+from anicat.gui import GuiEvent, process_gui_events, run_download
 from anicat.models import DownloadResult, Episode, JobReport
 
 
@@ -12,6 +12,45 @@ def drain(events: Queue[GuiEvent | None]) -> list[GuiEvent | None]:
     while not events.empty():
         values.append(events.get_nowait())
     return values
+
+
+class GuiEventProcessingTests(unittest.TestCase):
+    @patch("anicat.gui.monotonic", side_effect=[0, 0.009, 1, 1, 1])
+    def test_yields_then_preserves_item_and_completion_order(self, clock):
+        events: Queue[GuiEvent | None] = Queue()
+        queued = GuiEvent("item", url="https://anime1.me/1", state="queued")
+        done = GuiEvent("item", url="https://anime1.me/1", state="done")
+        for event in (queued, done, None):
+            events.put(event)
+        handled: list[GuiEvent | None] = []
+
+        self.assertTrue(process_gui_events(events, handled.append))
+        self.assertEqual(handled, [queued])
+        self.assertEqual(events.qsize(), 2)
+        self.assertFalse(process_gui_events(events, handled.append))
+        self.assertEqual(handled, [queued, done, None])
+        self.assertTrue(events.empty())
+
+    @patch("anicat.gui.monotonic", return_value=0)
+    def test_fast_handlers_still_yield_before_tk_redraw_work_accumulates(self, clock):
+        events: Queue[GuiEvent | None] = Queue()
+        for index in range(12):
+            events.put(GuiEvent("item", url=str(index), state="queued"))
+        handled: list[GuiEvent | None] = []
+
+        self.assertTrue(process_gui_events(events, handled.append))
+        self.assertEqual(len(handled), 8)
+        self.assertEqual(events.qsize(), 4)
+        self.assertFalse(process_gui_events(events, handled.append))
+        self.assertEqual(
+            [event.url for event in handled if event is not None], list(map(str, range(12)))
+        )
+
+    def test_empty_queue_does_not_call_handler(self):
+        events: Queue[GuiEvent | None] = Queue()
+        handled: list[GuiEvent | None] = []
+        self.assertFalse(process_gui_events(events, handled.append))
+        self.assertEqual(handled, [])
 
 
 class GuiWorkerTests(unittest.TestCase):

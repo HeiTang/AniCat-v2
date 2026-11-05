@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Thread
+from time import monotonic
 from typing import Literal
 
 from .ffmpeg import find_ffmpeg
@@ -27,6 +29,24 @@ class GuiEvent:
     state: GuiItemState | None = None
     detail: str = ""
     total: int = 0
+
+
+def process_gui_events(
+    events: Queue[GuiEvent | None], handle: Callable[[GuiEvent | None], None]
+) -> bool:
+    """Preserve event order while yielding after eight events or an 8ms slice."""
+
+    deadline = monotonic() + 0.008
+    # Bound deferred widget layout/redraw work as well as Python handler time.
+    for _ in range(8):
+        try:
+            event = events.get_nowait()
+        except Empty:
+            return False
+        handle(event)
+        if monotonic() >= deadline:
+            return True
+    return True
 
 
 def run_download(urls: list[str], output: Path, events: Queue[GuiEvent | None]) -> None:
@@ -407,8 +427,13 @@ def main() -> int:
         summary.set("尚未開始")
         state["error"] = False
 
-    def handle(event: GuiEvent) -> None:
-        if event.kind == "tool":
+    def handle(event: GuiEvent | None) -> None:
+        if event is None:
+            state["busy"] = False
+            start_button.configure(text="開始下載")
+            style_start()
+            status_text.set("這批工作已結束" if not state["error"] else "有工作需要處理")
+        elif event.kind == "tool":
             if event.text == "missing":
                 state["error"] = True
                 tool_status.set("影片處理工具未就緒，尚未開始下載")
@@ -424,7 +449,7 @@ def main() -> int:
             total.set(event.total)
             summary.set(f"0 / {event.total} 集已完成")
         elif event.kind == "item" and event.url and event.state:
-            _row, badge, title, detail = ensure_item(event.url)
+            _row, badge, _title, detail = ensure_item(event.url)
             set_badge(badge, event.state)
             if event.state == "error":
                 state["error"] = True
@@ -437,7 +462,6 @@ def main() -> int:
                 detail.configure(text=event.detail, fg="#D7CBA7")
             else:
                 detail.configure(text="等待下載", fg=COLORS["dark_muted"])
-            title.configure(text=event.url)
             summary.set(f"{finished.get()} / {total.get()} 集已完成")
 
     def start() -> None:
@@ -473,19 +497,8 @@ def main() -> int:
         )
 
     def poll() -> None:
-        try:
-            while True:
-                event = events.get_nowait()
-                if event is None:
-                    state["busy"] = False
-                    start_button.configure(text="開始下載")
-                    style_start()
-                    status_text.set("這批工作已結束" if not state["error"] else "有工作需要處理")
-                else:
-                    handle(event)
-        except Empty:
-            pass
-        root.after(100, poll)
+        yielded = process_gui_events(events, handle)
+        root.after(1 if yielded else 100, poll)
 
     def show_tool_help() -> None:
         import webbrowser
