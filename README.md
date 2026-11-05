@@ -73,7 +73,15 @@ anicat-gui
 一般安裝會透過 `imageio-ffmpeg` 一起安裝影片處理工具 FFmpeg，不需要另外設定 PATH。
 桌面介面會在開始下載前檢查工具是否能正常執行；系統已有可用的 FFmpeg 時優先沿用，
 否則使用套件內附的版本。檢查失敗會先顯示安裝說明，不會啟動下載。
-可隨時點「工具安裝說明」複製修復指令：
+可隨時點「工具安裝說明」，依原本安裝方式選擇修復指令：
+
+```bash
+# uv tool 安裝：不需要專案資料夾
+uv tool upgrade anicat --reinstall-package imageio-ffmpeg
+
+# pip 安裝：在原本安裝 AniCat 的 Python 環境執行
+python -m pip install --force-reinstall "imageio-ffmpeg>=0.8.1,<0.9"
+```
 
 ```bash
 # 在專案資料夾執行

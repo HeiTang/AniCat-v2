@@ -500,12 +500,19 @@ def main() -> int:
         label(
             panel,
             "一般安裝會一起準備好，不需要另外設定。\n"
-            "若檢查失敗，下載不會開始。請先在專案資料夾執行下方修復指令。",
+            "若檢查失敗，下載不會開始。請依原本的安裝方式修復，完成後重新開啟。",
             wraplength=470,
             justify="left",
         ).pack(anchor="w", pady=(12, 14))
-        command = "uv sync --locked --reinstall-package imageio-ffmpeg"
-        command_text = tk.Text(panel, height=2, width=58, font=mono_font, wrap="word")
+        command = (
+            "# uv tool 安裝（不需要專案資料夾）\n"
+            "uv tool upgrade anicat --reinstall-package imageio-ffmpeg\n\n"
+            "# 專案開發環境：在專案資料夾執行\n"
+            "uv sync --locked --reinstall-package imageio-ffmpeg\n\n"
+            "# pip 安裝：在原本安裝 AniCat 的 Python 環境執行\n"
+            "python -m pip install --force-reinstall 'imageio-ffmpeg>=0.8.1,<0.9'"
+        )
+        command_text = tk.Text(panel, height=10, width=66, font=mono_font, wrap="word")
         command_text.insert("1.0", command)
         command_text.configure(state="disabled")
         command_text.pack(fill="x")
