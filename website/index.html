@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="AniCat 是開源 Anime1 下載工具。貼上網址，將單集、整季或多個影片下載到自己的電腦。"
+    />
+    <meta name="theme-color" content="#f4f1e9" />
+    <title>AniCat — 把想看的，留在本機。</title>
+    <link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="48x48" href="assets/favicon-48.png" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">跳到主要內容</a>
+    <header class="wrap">
+      <a class="brand" href="#">
+        <img class="pixel-art" src="assets/anicat-logo-mark.png" alt="" width="44" height="32" />
+        AniCat<span> / 動畫下載工具</span>
+      </a>
+      <nav aria-label="主要導覽">
+        <a href="#start">開始使用</a><a href="#sources">支援來源</a
+        ><a href="https://github.com/HeiTang/AniCat-v2">GitHub ↗</a>
+      </nav>
+    </header>
+    <main id="main">
+      <section class="hero wrap">
+        <div>
+          <p class="eyebrow">OPEN SOURCE · LOCAL FILES · YOUR PACE</p>
+          <h1>把想看的，<br />留在本機<span class="orange">。</span></h1>
+          <p class="intro">
+            貼上 Anime1 網址，下載單集、整季或多個網址。<br />影片會留在你的電腦，不用在網頁上等待播放。
+          </p>
+          <div class="actions">
+            <a class="button" href="#start">開始第一次下載 <span>↗</span></a
+            ><a class="plain" href="#how">先看看怎麼用 ↓</a>
+          </div>
+          <p class="note">
+            目前先用終端機操作 · 需要 Python 3.12+ · GPL-3.0 授權文件
+          </p>
+        </div>
+        <div class="hero-visual">
+          <img
+            class="mascot pixel-art"
+            src="assets/anicat-mascot-mark.png"
+            alt="AniCat 吉祥物：繫橘色領巾的黑白像素貓"
+            width="92"
+            height="97"
+          />
+          <div class="demo" aria-label="下載指令示意">
+            <div class="window">
+              <span>● ● ●</span><span>一個網址，就能開始</span>
+            </div>
+            <div class="terminal">
+              <p class="muted"># 貼上單集網址</p>
+              <p><span class="prompt">❯</span> anicat https://anime1.me/15651</p>
+              <div class="rule"></div>
+              <p class="muted"># 也可以貼上分類或季度網址</p>
+              <p><span class="prompt">❯</span> anicat https://anime1.me/category/your-category</p>
+              <div class="file">
+                <span>↳</span>
+                <div>Anime1_Download/<small>影片預設儲存在這裡</small></div>
+                <span class="filetag">MP4</span>
+              </div>
+            </div>
+            <div class="caption">操作示意，並非即時下載畫面</div>
+          </div>
+        </div>
+      </section>
+      <section class="strip">
+        <div class="wrap strip-inner">
+          <span>單集／整季</span><span>多網址批次</span><span>MP4 中斷可續傳</span
+          ><span>同時下載與進度顯示</span>
+        </div>
+      </section>
+      <section class="wrap section" id="how">
+        <div class="section-heading">
+          <p class="eyebrow">01 / THE FLOW</p>
+          <h2>少一點重複操作。<br />多一點自己的時間。</h2>
+        </div>
+        <div class="steps">
+          <article>
+            <span class="number">01</span>
+            <h3>找到想看的</h3>
+            <p>
+              先在支援站點找到作品，再貼上單集、分類或季度網址；不用記住額外的搜尋指令。
+            </p>
+          </article>
+          <article>
+            <span class="number">02</span>
+            <h3>一次處理多集</h3>
+            <p>
+              一次貼上多個網址，或交給工具展開整季。需要時再用
+              <code>-c</code> 調整同時下載的集數。
+            </p>
+          </article>
+          <article>
+            <span class="number">03</span>
+            <h3>留在你的資料夾</h3>
+            <p>
+              對能直接提供 MP4 影片的來源，下載中會先保留
+              <code>.mp4.part</code> 暫存檔；中斷後重新執行相同指令，就能從暫存位置接著下載。
+            </p>
+          </article>
+        </div>
+      </section>
+      <section class="start section" id="start">
+        <div class="wrap start-grid">
+          <div>
+            <p class="eyebrow">02 / QUICK START</p>
+            <h2>第一次使用，<br />從這裡開始。</h2>
+            <p>
+              先安裝
+              <a href="https://docs.astral.sh/uv/getting-started/installation/"
+                >uv</a
+              >（用來安裝 Python 工具的管理程式），再開啟終端機。以下指令安裝 GitHub
+              的 v0.3.0 版本；電腦也需要 Git。
+            </p>
+            <p class="note">
+              PyPI 套件預計命名為 <code>anicat</code>，目前尚未發布，請使用這裡的 GitHub
+              安裝方式。桌面介面與新站支援仍在開發中、尚未發布。
+              開發版桌面介面安裝時會一起準備影片處理工具，檢查失敗時也會提供修復說明。
+            </p>
+          </div>
+          <div class="commands">
+            <div class="command">
+              <div class="command-label">1. 安裝工具</div>
+              <pre
+                id="install"
+              ><code>uv tool install "git+https://github.com/HeiTang/AniCat-v2.git@v0.3.0"</code></pre>
+              <button type="button" data-copy="install">複製安裝指令</button>
+            </div>
+            <div class="command">
+              <div class="command-label">2. 下載第一集</div>
+              <pre
+                id="download"
+              ><code>anicat https://anime1.me/15651</code></pre>
+              <button type="button" data-copy="download">複製下載指令</button>
+            </div>
+            <details>
+              <summary>指定資料夾、批次與併發</summary>
+              <pre><code>anicat URL1 URL2 -o ./Videos -c 2
+anicat --help</code></pre>
+              <p>
+                把 URL1、URL2 換成實際網址。<code>-o</code> 指定輸出資料夾，
+                <code>-c 2</code> 代表同時下載 2 集；不指定時會使用目前位置下的
+                Anime1_Download。這些是進階設定，不改也能先下載。
+              </p>
+            </details>
+            <p id="copy-status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+      <section class="wrap section" id="sources">
+        <div class="section-heading">
+          <p class="eyebrow">03 / SOURCES</p>
+          <h2>支援什麼，清楚列給你。</h2>
+          <p>已發布版本與開發版本分開標示，避免裝好後才發現功能不同。</p>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <caption class="sr-only">
+              來源支援與限制
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">來源</th>
+                <th scope="col">狀態</th>
+                <th scope="col">下載方式與限制</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">anime1.me</th>
+                <td><span class="badge">已支援</span></td>
+                <td>單集、分類／季度 · 可直接取得 MP4 · 中斷可續傳</td>
+              </tr>
+              <tr>
+                <th scope="row">anime1.pw</th>
+                <td><span class="badge">已支援</span></td>
+                <td>單集、分類／季度 · 可直接取得 MP4 · 中斷可續傳</td>
+              </tr>
+              <tr>
+                <th scope="row">anime1.cc</th>
+                <td><span class="badge pending">開發中</span></td>
+                <td>串流影片下載 · 開發版會一起準備所需工具 · 尚未發布</td>
+              </tr>
+              <tr>
+                <th scope="row">anime1.in</th>
+                <td><span class="badge pending">開發中</span></td>
+                <td>串流影片下載 · 開發版會一起準備所需工具 · 尚未發布</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section class="wrap section faq">
+        <div>
+          <p class="eyebrow">04 / GOOD TO KNOW</p>
+          <h2>卡住了？<br />先看這幾件事。</h2>
+        </div>
+        <div>
+          <details>
+            <summary>安裝後找不到 anicat 指令？</summary>
+            <p>
+              執行 <code>uv tool update-shell</code>，關閉並重新開啟終端機，再試
+              <code>anicat --help</code>。
+            </p>
+          </details>
+          <details>
+            <summary>下載失敗後能接續嗎？</summary>
+            <p>
+              可以。能直接取得 MP4 的來源會在同資料夾留下
+              <code>.mp4.part</code> 暫存檔；它不是最後完成的影片，請不要刪除。重新執行原指令即可從暫存位置繼續。
+              開發中的串流影片目前失敗後會從頭下載，尚未發布。
+            </p>
+          </details>
+          <details>
+            <summary>這個網頁可以直接下載影片嗎？</summary>
+            <p>
+              這裡提供介紹與操作說明，下載由安裝在你電腦上的 AniCat
+              執行。已發布的 v0.3.0 尚無圖形介面；獨立 GUI
+              開發分支提供桌面視窗，需要 Python Tk
+              支援，尚未包含在此網站分支或已發布版本。
+            </p>
+          </details>
+          <details>
+            <summary>如何回報問題？</summary>
+            <p>
+              附上版本、來源網址、執行指令與錯誤訊息，到
+              <a href="https://github.com/HeiTang/AniCat-v2/issues"
+                >GitHub Issues</a
+              >
+              回報。請先移除 cookies 或其他私人資訊。
+            </p>
+          </details>
+        </div>
+      </section>
+    </main>
+    <footer class="wrap">
+      <a class="brand" href="#">
+        <img class="pixel-art" src="assets/anicat-logo-mark.png" alt="" width="44" height="32" />
+        AniCat
+      </a>
+      <p>讓工具處理下載，讓你專心看故事。</p>
+      <a href="https://github.com/HeiTang/AniCat-v2/blob/main/LICENSE"
+        >授權文件 ↗</a
+      >
+    </footer>
+    <script src="script.js"></script>
+  </body>
+</html>

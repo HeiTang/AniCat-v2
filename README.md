@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="website/assets/anicat-logo-readme.svg" alt="AniCat 主 Logo：橘白像素貓" width="192" height="192">
+</p>
+
 # AniCat-v2
 
 > 穩定、快速、可續傳的 Anime1 命令列下載器。
@@ -263,6 +267,22 @@ for entry in matches:
 
 歡迎任何形式的貢獻！請先閱讀 [CONTRIBUTING.md](CONTRIBUTING.md) 以了解專案規範與流程。
 
+<p align="center">
+  <img src="website/assets/anicat-mascot-readme.svg" alt="AniCat 吉祥物：繫橘色領巾的黑白像素貓" width="128" height="128">
+</p>
+
 ## License
 
 本專案採用 GPL-3.0 License，詳見 [LICENSE](LICENSE) 文件。
+
+## 介紹網站（本機預覽）
+
+`website/` 提供靜態介紹與操作說明，不需 Node 或前端建置工具。
+
+```bash
+python3 -m http.server 8765 --bind 127.0.0.1 --directory website
+```
+
+開啟 `http://127.0.0.1:8765`。網站安裝範例指向已發布的 v0.3.0；
+HLS 與 GUI 屬於另外的開發分支，不包含在網站 PR 或 v0.3.0 內。
+網站尚未公開部署，PyPI 預計使用套件名稱 `anicat`，正式發布前仍使用 GitHub 安裝。
