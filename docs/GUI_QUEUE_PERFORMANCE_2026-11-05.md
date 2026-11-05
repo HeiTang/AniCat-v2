@@ -1,5 +1,7 @@
 # GUI 佇列回應效能驗收 — 2026-11-05
 
+> 此文件保留首次佇列修正的歷史驗收；後續 GIL 追查、排程修正及最新結果見 [GUI_GIL_ACCEPTANCE_2026-11-05.md](GUI_GIL_ACCEPTANCE_2026-11-05.md)。
+
 - 基底：dev `6e6954f7b305cc236c052fb2bc495d941f7d5342`；程式碼候選：`e536fccf977a6c879950f27951ae84b3e4b407da`。後續文件提交不改程式。
 - macOS 26.6.2 ARM64、Apple M3／16 GiB、Python 3.14.5；原生 Tk，套件內附 FFmpeg 9.0。
 - 目的：限制單次 UI 事件處理與延後的 widget layout/redraw 工作量，保留 FIFO、逐集狀態與最後完成訊號。
