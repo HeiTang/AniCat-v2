@@ -43,7 +43,7 @@ jobs:
 
       - name: Run tests without system FFmpeg
         run: |
-          uv run python - <<'PY'
+          uv run python -c '
           import os
           import runpy
           import shutil
@@ -60,7 +60,7 @@ jobs:
           print(f"Packaged FFmpeg: {executable}", flush=True)
           subprocess.run([executable, "-version"], check=True)
           runpy.run_module("unittest", run_name="__main__")
-          PY
+          '
 
       - name: Compile sources
         run: uv run python -m compileall src/anicat tests
