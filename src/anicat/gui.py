@@ -510,7 +510,7 @@ def main() -> int:
             "# 專案開發環境：在專案資料夾執行\n"
             "uv sync --locked --reinstall-package imageio-ffmpeg\n\n"
             "# pip 安裝：在原本安裝 AniCat 的 Python 環境執行\n"
-            "python -m pip install --force-reinstall 'imageio-ffmpeg>=0.8.1,<0.9'"
+            'python -m pip install --force-reinstall "imageio-ffmpeg>=0.8.1,<0.9"'
         )
         command_text = tk.Text(panel, height=10, width=66, font=mono_font, wrap="word")
         command_text.insert("1.0", command)
