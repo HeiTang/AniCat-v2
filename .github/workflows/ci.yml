@@ -14,7 +14,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -23,7 +23,7 @@ jobs:
           cache-dependency-glob: uv.lock
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
@@ -41,8 +41,29 @@ jobs:
       - name: Type check
         run: uv run pyright
 
-      - name: Run tests
-        run: uv run python -m unittest
+      - name: Run tests without system FFmpeg
+        run: |
+          uv run python - <<'PY'
+          import os
+          import runpy
+          import shutil
+          import subprocess
+
+          os.environ["PATH"] = ""
+          os.environ.pop("IMAGEIO_FFMPEG_EXE", None)
+          assert shutil.which("ffmpeg") is None
+
+          from anicat.ffmpeg import find_ffmpeg
+
+          executable = find_ffmpeg()
+          assert executable is not None
+          print(f"Packaged FFmpeg: {executable}", flush=True)
+          subprocess.run([executable, "-version"], check=True)
+          runpy.run_module("unittest", run_name="__main__")
+          PY
 
       - name: Compile sources
         run: uv run python -m compileall src/anicat tests
+
+      - name: Build distributions
+        run: uv build --no-sources
