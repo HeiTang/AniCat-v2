@@ -1,8 +1,11 @@
 import hashlib
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+import requests
 
 from anicat.errors import DownloadError
 from anicat.hls_segments import (
@@ -10,6 +13,7 @@ from anicat.hls_segments import (
     SegmentBatch,
     SegmentIntegrityError,
     SegmentSpec,
+    _SegmentSession,
     classify_boundaries,
     inspect_ts_segment,
     parse_media_segments,
@@ -255,3 +259,68 @@ class PlaylistParsingTests(unittest.TestCase):
                 )
             normalized_third = (root / "normalized" / third_path.name).read_bytes()
             self.assertEqual(inspect_ts_segment(normalized_third, 2).first_cc_by_pid, {256: 4})
+
+
+class SegmentEnvironmentTests(unittest.TestCase):
+    @patch(
+        "requests.sessions.get_environ_proxies", return_value={"https": "http://proxy.test:8080"}
+    )
+    def test_same_origin_reuses_lookup_without_sharing_mutable_proxies(self, lookup):
+        with _SegmentSession() as session:
+            first = session.merge_environment_settings(
+                "https://cdn.test/a.ts", {}, True, None, None
+            )
+            first["proxies"]["https"] = "http://modified.test"
+            second = session.merge_environment_settings(
+                "https://cdn.test/b.ts", {}, True, None, None
+            )
+            self.assertEqual(second["proxies"]["https"], "http://proxy.test:8080")
+            self.assertEqual(lookup.call_count, 1)
+            session.merge_environment_settings("https://other.test/a.ts", {}, True, None, None)
+            session.merge_environment_settings("https://cdn.test:8443/a.ts", {}, True, None, None)
+            self.assertEqual(lookup.call_count, 3)
+
+    def test_env_proxy_no_proxy_and_ca_changes_match_requests(self):
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "https_proxy": "http://env-proxy.test:8080",
+                    "NO_PROXY": "bypass.test",
+                    "REQUESTS_CA_BUNDLE": "/tmp/ca-one.pem",
+                },
+                clear=True,
+            ),
+            requests.Session() as original,
+            _SegmentSession() as cached,
+        ):
+
+            def compare(url, proxies, verify=None, cert=None):
+                expected = original.merge_environment_settings(
+                    url, None if proxies is None else proxies.copy(), True, verify, cert
+                )
+                actual = cached.merge_environment_settings(
+                    url, None if proxies is None else proxies.copy(), True, verify, cert
+                )
+                self.assertEqual(actual, expected)
+
+            for _ in range(2):
+                compare("https://cdn.test/a.ts", {})
+                compare("https://bypass.test/a.ts", {})
+                compare("https://cdn.test/a.ts", None)
+                compare("https://cdn.test/a.ts", {"https": "http://explicit.test:8888"})
+                compare("https://cdn.test/a.ts", {}, False, ("/tmp/cert.pem", "/tmp/key.pem"))
+            os.environ["REQUESTS_CA_BUNDLE"] = "/tmp/ca-two.pem"
+            os.environ["NO_PROXY"] = "cdn.test"
+            compare("https://cdn.test/a.ts", {})
+            original.trust_env = cached.trust_env = False
+            compare("https://cdn.test/a.ts", {})
+
+    def test_netrc_auth_preparation_is_preserved(self):
+        with patch("requests.sessions.get_netrc_auth", return_value=("user", "password")):
+            with requests.Session() as original, _SegmentSession() as cached:
+                request = requests.Request("GET", "https://cdn.test/a.ts")
+                self.assertEqual(
+                    cached.prepare_request(request).headers["Authorization"],
+                    original.prepare_request(request).headers["Authorization"],
+                )
