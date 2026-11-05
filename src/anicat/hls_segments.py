@@ -157,54 +157,6 @@ class ContinuityNormalization:
     packets_rewritten: int
 
 
-class _SegmentSession(requests.Session):
-    """Snapshot per-origin environment settings for this segment worker's batch."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._environment_cache: dict[tuple[object, ...], dict[str, object]] = {}
-
-    def merge_environment_settings(self, url, proxies, stream, verify, cert):
-        parsed = urlparse(url)
-        environment = tuple(
-            sorted(
-                (name, value)
-                for name, value in os.environ.items()
-                if name.lower().endswith("_proxy")
-                or name in {"REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"}
-            )
-        )
-        key = (
-            parsed.scheme,
-            parsed.netloc,
-            None if proxies is None else tuple(sorted(proxies.items())),
-            stream,
-            verify,
-            cert,
-            tuple(sorted(self.proxies.items())),
-            self.stream,
-            self.verify,
-            self.cert,
-            self.trust_env,
-            environment,
-        )
-        try:
-            cached = self._environment_cache.get(key)
-        except TypeError:
-            return super().merge_environment_settings(url, proxies, stream, verify, cert)
-        if cached is None:
-            cached = super().merge_environment_settings(url, proxies, stream, verify, cert)
-            self._environment_cache[key] = cached
-        # Redirect processing may mutate proxies; never return the cached mapping itself.
-        proxy_settings = cached.get("proxies")
-        return {
-            **cached,
-            "proxies": proxy_settings.copy()
-            if isinstance(proxy_settings, dict)
-            else proxy_settings,
-        }
-
-
 _session_state = threading.local()
 
 
@@ -213,7 +165,7 @@ def _thread_session() -> requests.Session:
 
     session = getattr(_session_state, "session", None)
     if session is None:
-        session = _SegmentSession()
+        session = requests.Session()
         _session_state.session = session
     return session
 

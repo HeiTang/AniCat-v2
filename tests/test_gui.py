@@ -1,9 +1,10 @@
+import os
 import unittest
 from pathlib import Path
 from queue import Queue
 from unittest.mock import patch
 
-from anicat.gui import GuiEvent, process_gui_events, run_download
+from anicat.gui import GuiEvent, process_gui_events, run_download, run_download_isolated
 from anicat.models import DownloadResult, Episode, JobReport
 
 
@@ -12,6 +13,51 @@ def drain(events: Queue[GuiEvent | None]) -> list[GuiEvent | None]:
     while not events.empty():
         values.append(events.get_nowait())
     return values
+
+
+def _worker_reports(urls, output, events):
+    events.put(GuiEvent("item", url=urls[0], state="validating"))
+    events.put(GuiEvent("item", url=urls[0], state="done"))
+    events.put(None)
+
+
+def _worker_crashes(urls, output, events):
+    os._exit(7)
+
+
+class GuiProcessTests(unittest.TestCase):
+    @patch("anicat.gui.run_download", _worker_reports)
+    def test_spawned_worker_preserves_stage_and_completion_order(self):
+        events: Queue[GuiEvent | None] = Queue()
+        run_download_isolated(["https://anime1.me/1"], Path("/tmp/output"), events)
+        values = drain(events)
+        self.assertEqual(
+            [event.state for event in values if event is not None], ["validating", "done"]
+        )
+        self.assertEqual(values.count(None), 1)
+        self.assertIsNone(values[-1])
+
+    @patch("anicat.gui.run_download", _worker_crashes)
+    def test_worker_crash_reports_error_and_releases_ui(self):
+        events: Queue[GuiEvent | None] = Queue()
+        run_download_isolated([], Path("/tmp/output"), events)
+        values = drain(events)
+        self.assertEqual(len(values), 2)
+        error = values[0]
+        assert error is not None
+        self.assertEqual(error.kind, "status")
+        self.assertIn("退出碼 7", error.detail)
+        self.assertIsNone(values[-1])
+
+    @patch("anicat.gui.get_context", side_effect=OSError("spawn unavailable"))
+    def test_start_failure_also_releases_ui(self, context):
+        events: Queue[GuiEvent | None] = Queue()
+        run_download_isolated([], Path("/tmp/output"), events)
+        values = drain(events)
+        error = values[0]
+        assert error is not None
+        self.assertIn("spawn unavailable", error.detail)
+        self.assertIsNone(values[-1])
 
 
 class GuiEventProcessingTests(unittest.TestCase):

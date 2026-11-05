@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from multiprocessing import get_context
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Thread
 from time import monotonic
-from typing import Literal
+from typing import Literal, Protocol
 
 from .ffmpeg import find_ffmpeg
 from .models import DownloadStage, JobReport
@@ -31,6 +32,13 @@ class GuiEvent:
     total: int = 0
 
 
+class GuiEventSink(Protocol):
+    def put(self, item: GuiEvent | None) -> None:
+        """Send an event to the UI or its process relay."""
+
+        ...
+
+
 def process_gui_events(
     events: Queue[GuiEvent | None], handle: Callable[[GuiEvent | None], None]
 ) -> bool:
@@ -49,7 +57,7 @@ def process_gui_events(
     return True
 
 
-def run_download(urls: list[str], output: Path, events: Queue[GuiEvent | None]) -> None:
+def run_download(urls: list[str], output: Path, events: GuiEventSink) -> None:
     """Run off the UI thread and send only observable state changes."""
 
     try:
@@ -89,6 +97,51 @@ def run_download(urls: list[str], output: Path, events: Queue[GuiEvent | None]) 
         events.put(GuiEvent("status", text="這批工作沒有完成", detail=str(error)))
     finally:
         events.put(None)
+
+
+def run_download_isolated(urls: list[str], output: Path, events: GuiEventSink) -> None:
+    """Relay a spawned worker's events without sharing its GIL with Tk."""
+
+    channel = None
+    process = None
+    needs_join = False
+    try:
+        context = get_context("spawn")
+        channel = context.Queue()
+        process = context.Process(target=run_download, args=(urls, output, channel), daemon=True)
+        process.start()
+        needs_join = True
+        while True:
+            try:
+                event = channel.get(timeout=0.1)
+            except Empty:
+                if not process.is_alive():
+                    raise RuntimeError(
+                        f"下載工作程序意外結束（退出碼 {process.exitcode}），請重試。"
+                    ) from None
+                continue
+            if event is None:
+                process.join()
+                needs_join = False
+                if process.exitcode != 0:
+                    raise RuntimeError(
+                        f"下載工作程序異常退出（退出碼 {process.exitcode}），請重試。"
+                    )
+                break
+            events.put(event)
+    except Exception as error:
+        events.put(GuiEvent("status", text="這批工作沒有完成", detail=str(error)))
+    finally:
+        try:
+            if process is not None:
+                if needs_join:
+                    process.join()
+                process.close()
+            if channel is not None:
+                channel.close()
+                channel.join_thread()
+        finally:
+            events.put(None)
 
 
 COLORS = {
@@ -501,7 +554,7 @@ def main() -> int:
         style_start()
         status_text.set("正在連線與解析…")
         Thread(
-            target=run_download,
+            target=run_download_isolated,
             args=(values, Path(output.get()).expanduser(), events),
             daemon=True,
         ).start()
