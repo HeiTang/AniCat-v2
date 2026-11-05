@@ -47,6 +47,10 @@ def is_season_url(url: str) -> bool:
     if kind == "anime1_in":
         return not is_episode_url(url) and is_category_slug_path(parsed.path)
     if kind == ANIME1_ME_SOURCE:
+        if is_numeric_episode_path(parsed.path):
+            return False
+        if has_numeric_category_query(parsed.query):
+            return True
         return parsed.path.startswith("/category/") and len(parsed.path) > len("/category/")
     if kind == ANIME1_PW_SOURCE:
         if is_numeric_episode_path(parsed.path):
