@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Protocol
@@ -74,6 +74,10 @@ class JobReport:
     url: str
     result: DownloadResult | None = None
     error: str | None = None
+
+
+DownloadStage = Literal["resolving", "downloading", "verifying", "merging", "validating"]
+DownloadStageCallback = Callable[[str, DownloadStage], None]
 
 
 @dataclass(frozen=True)

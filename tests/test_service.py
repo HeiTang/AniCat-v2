@@ -148,6 +148,7 @@ class ServiceTests(unittest.TestCase):
     def test_download_many_reports_chunk_progress(self):
         progress: list[tuple[str, int, int, int | None]] = []
         GoodClient.instances.clear()
+        stages: list[tuple[str, str]] = []
 
         with TemporaryDirectory() as directory:
             service = AniCatService(
@@ -161,6 +162,7 @@ class ServiceTests(unittest.TestCase):
 
             reports = service.download_many(
                 ["https://anime1.me/1"],
+                on_stage=lambda url, stage: stages.append((url, stage)),
                 on_progress=lambda event: progress.append(
                     (
                         event.phase,
@@ -171,6 +173,10 @@ class ServiceTests(unittest.TestCase):
                 ),
             )
 
+            self.assertEqual(
+                stages,
+                [("https://anime1.me/1", "resolving"), ("https://anime1.me/1", "downloading")],
+            )
             self.assertEqual(
                 progress,
                 [

@@ -22,7 +22,13 @@ from .hls_segments import (
     write_group_playlists,
     write_local_playlist,
 )
-from .models import DownloadProgressEvent, DownloadResult, Episode
+from .models import (
+    DownloadProgressEvent,
+    DownloadResult,
+    DownloadStage,
+    DownloadStageCallback,
+    Episode,
+)
 
 _MAX_MASTER_VARIANT_DEPTH = 3
 _HLS_DURATION_TOLERANCE = 0.25
@@ -451,6 +457,7 @@ def download_hls_episode(
     *,
     overwrite: bool = False,
     progress: ProgressCallback | None = None,
+    on_stage: DownloadStageCallback | None = None,
     timeout: float = 30,
     retries: int = 3,
 ) -> DownloadResult:
@@ -473,6 +480,12 @@ def download_hls_episode(
         raise ValueError("retries must be greater than or equal to 0")
     if any(character in episode.page_url for character in "\r\n"):
         raise DownloadError("invalid episode Referer")
+
+    def stage(value: DownloadStage) -> None:
+        if on_stage:
+            on_stage(episode.page_url, value)
+
+    stage("resolving")
     manifest: HlsManifest | None = None
     for preflight_attempt in range(retries + 1):
         try:
@@ -493,6 +506,7 @@ def download_hls_episode(
         input_playlist = playlist
         group_playlists: tuple[tuple[Path, float], ...] = ()
         if manifest is not None and manifest.segments is not None:
+            stage("downloading")
             batch = download_segments(
                 manifest.segments,
                 Path(work) / "segments",
@@ -502,6 +516,7 @@ def download_hls_episode(
                 retries=retries,
             )
             LOGGER.debug("HLS segment evidence: %s", batch.summary)
+            stage("verifying")
             input_path = Path(work) / "index.m3u8"
             normalizations = write_local_playlist(input_path, manifest.segments, batch)
             LOGGER.debug(
@@ -520,6 +535,7 @@ def download_hls_episode(
         last_error = "FFmpeg produced no video"
         for attempt in range(retries + 1):
             temporary.unlink(missing_ok=True)
+            stage("merging")
             if len(group_playlists) > 1:
                 error = _remux_groups(
                     executable,
@@ -548,6 +564,7 @@ def download_hls_episode(
                 )
             if error is None:
                 try:
+                    stage("validating")
                     _validate_output(executable, temporary, expected_duration)
                 except DownloadError as error:
                     last_error = str(error)

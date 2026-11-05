@@ -238,7 +238,20 @@ class HlsRuntimeTests(unittest.TestCase):
             try:
                 origin = f"http://127.0.0.1:{server.server_port}"
                 episode = Episode(origin, "fixture", f"{origin}/index.m3u8", stream_type="hls")
-                result = download_hls_episode(episode, root / "output", timeout=5)
+                stages: list[tuple[str, str, bool]] = []
+                result = download_hls_episode(
+                    episode,
+                    root / "output",
+                    timeout=5,
+                    on_stage=lambda url, stage: stages.append(
+                        (url, stage, (root / "output" / "fixture.mp4").exists())
+                    ),
+                )
+                self.assertEqual(
+                    [stage for _url, stage, _exists in stages],
+                    ["resolving", "downloading", "verifying", "merging", "validating"],
+                )
+                self.assertTrue(all(url == origin and not exists for url, _stage, exists in stages))
                 self.assertGreater(result.bytes_written, 0)
                 segments = sorted(root.glob("*.ts"))
                 self.assertGreaterEqual(len(segments), 3)

@@ -59,6 +59,37 @@ class HlsDownloaderTests(unittest.TestCase):
 
     @patch("anicat.hls_downloader.find_ffmpeg", return_value="/bin/ffmpeg")
     @patch("anicat.hls_downloader.subprocess.run")
+    def test_video_dts_warning_rejects_before_full_validation_stage(self, run, _which):
+        path = self.output / "show.mp4"
+        path.write_bytes(b"existing")
+        stages: list[str] = []
+
+        def warning(command, **kwargs):
+            Path(command[-1]).write_bytes(b"candidate")
+            kwargs["stderr"].write(
+                b"[vost#0:0/copy @ 0x123] Non-monotonic DTS; previous: 50227010, "
+                b"current: 50226566; changing to 50227011. This may result in "
+                b"incorrect timestamps in the output file.\n"
+            )
+            return subprocess.CompletedProcess(command, 0)
+
+        run.side_effect = warning
+        with patch("anicat.hls_downloader._validate_output") as decode:
+            with self.assertRaisesRegex(DownloadError, "fatal_ffmpeg_warning"):
+                download_hls_episode(
+                    self.episode,
+                    self.output,
+                    overwrite=True,
+                    retries=0,
+                    on_stage=lambda _url, stage: stages.append(stage),
+                )
+            decode.assert_not_called()
+        self.assertNotIn("validating", stages)
+        self.assertEqual(path.read_bytes(), b"existing")
+        self.assertEqual(list(self.output.iterdir()), [path])
+
+    @patch("anicat.hls_downloader.find_ffmpeg", return_value="/bin/ffmpeg")
+    @patch("anicat.hls_downloader.subprocess.run")
     def test_empty_success_is_rejected(self, run, _which):
         run.return_value = subprocess.CompletedProcess([], 0)
         with self.assertRaisesRegex(DownloadError, "no video.*after 4 attempt"):

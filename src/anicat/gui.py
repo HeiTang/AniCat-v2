@@ -4,19 +4,20 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from multiprocessing import get_context
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Thread
 from time import monotonic
-from typing import Literal
+from typing import Literal, Protocol
 
 from .ffmpeg import find_ffmpeg
-from .models import JobReport
+from .models import DownloadStage, JobReport
 from .options import DownloadOptions
 from .service import AniCatService
 from .urls import split_urls
 
-GuiItemState = Literal["queued", "done", "skipped", "error"]
+GuiItemState = DownloadStage | Literal["queued", "done", "skipped", "error"]
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,13 @@ class GuiEvent:
     state: GuiItemState | None = None
     detail: str = ""
     total: int = 0
+
+
+class GuiEventSink(Protocol):
+    def put(self, item: GuiEvent | None) -> None:
+        """Send an event to the UI or its process relay."""
+
+        ...
 
 
 def process_gui_events(
@@ -49,7 +57,7 @@ def process_gui_events(
     return True
 
 
-def run_download(urls: list[str], output: Path, events: Queue[GuiEvent | None]) -> None:
+def run_download(urls: list[str], output: Path, events: GuiEventSink) -> None:
     """Run off the UI thread and send only observable state changes."""
 
     try:
@@ -81,11 +89,59 @@ def run_download(urls: list[str], output: Path, events: Queue[GuiEvent | None]) 
                     )
                 )
 
-        service.download_many(episodes, on_done=done)
+        def stage(url: str, value: DownloadStage) -> None:
+            events.put(GuiEvent("item", url=url, state=value, detail=STAGE_DETAIL[value]))
+
+        service.download_many(episodes, on_done=done, on_stage=stage)
     except Exception as error:
         events.put(GuiEvent("status", text="這批工作沒有完成", detail=str(error)))
     finally:
         events.put(None)
+
+
+def run_download_isolated(urls: list[str], output: Path, events: GuiEventSink) -> None:
+    """Relay a spawned worker's events without sharing its GIL with Tk."""
+
+    channel = None
+    process = None
+    needs_join = False
+    try:
+        context = get_context("spawn")
+        channel = context.Queue()
+        process = context.Process(target=run_download, args=(urls, output, channel), daemon=True)
+        process.start()
+        needs_join = True
+        while True:
+            try:
+                event = channel.get(timeout=0.1)
+            except Empty:
+                if not process.is_alive():
+                    raise RuntimeError(
+                        f"下載工作程序意外結束（退出碼 {process.exitcode}），請重試。"
+                    ) from None
+                continue
+            if event is None:
+                process.join()
+                needs_join = False
+                if process.exitcode != 0:
+                    raise RuntimeError(
+                        f"下載工作程序異常退出（退出碼 {process.exitcode}），請重試。"
+                    )
+                break
+            events.put(event)
+    except Exception as error:
+        events.put(GuiEvent("status", text="這批工作沒有完成", detail=str(error)))
+    finally:
+        try:
+            if process is not None:
+                if needs_join:
+                    process.join()
+                process.close()
+            if channel is not None:
+                channel.close()
+                channel.join_thread()
+        finally:
+            events.put(None)
 
 
 COLORS = {
@@ -110,9 +166,23 @@ COLORS = {
 
 STATUS_COPY: dict[GuiItemState, tuple[str, str, str]] = {
     "queued": ("等待中", COLORS["queued_bg"], COLORS["queued_fg"]),
+    "resolving": ("解析來源", COLORS["queued_bg"], COLORS["queued_fg"]),
+    "downloading": ("下載中", COLORS["queued_bg"], COLORS["queued_fg"]),
+    "verifying": ("檢查分段", COLORS["queued_bg"], COLORS["queued_fg"]),
+    "merging": ("合併影片", COLORS["queued_bg"], COLORS["queued_fg"]),
+    "validating": ("全片驗證", COLORS["queued_bg"], COLORS["queued_fg"]),
     "done": ("完成", COLORS["done_bg"], COLORS["done_fg"]),
     "skipped": ("已存在", COLORS["skipped_bg"], COLORS["skipped_fg"]),
     "error": ("失敗", COLORS["error_bg"], COLORS["error_fg"]),
+}
+
+
+STAGE_DETAIL: dict[DownloadStage, str] = {
+    "resolving": "正在解析作品與播放來源…",
+    "downloading": "正在下載影片並檢查接收內容…",
+    "verifying": "正在檢查分段銜接與整理時間軸…",
+    "merging": "正在合併影片與處理音訊…",
+    "validating": "正在完整解碼驗證，通過後才會完成…",
 }
 
 
@@ -448,6 +518,7 @@ def main() -> int:
         elif event.kind == "queue":
             total.set(event.total)
             summary.set(f"0 / {event.total} 集已完成")
+            status_text.set("正在下載與驗證，請查看各集狀態")
         elif event.kind == "item" and event.url and event.state:
             _row, badge, _title, detail = ensure_item(event.url)
             set_badge(badge, event.state)
@@ -461,7 +532,7 @@ def main() -> int:
                 finished.set(finished.get() + 1)
                 detail.configure(text=event.detail, fg="#D7CBA7")
             else:
-                detail.configure(text="等待下載", fg=COLORS["dark_muted"])
+                detail.configure(text=event.detail or "等待下載", fg=COLORS["dark_muted"])
             summary.set(f"{finished.get()} / {total.get()} 集已完成")
 
     def start() -> None:
@@ -483,7 +554,7 @@ def main() -> int:
         style_start()
         status_text.set("正在連線與解析…")
         Thread(
-            target=run_download,
+            target=run_download_isolated,
             args=(values, Path(output.get()).expanduser(), events),
             daemon=True,
         ).start()
