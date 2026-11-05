@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.3.0 - 2026-08-19
+
+### Added
+
+- 新增 `anicat search KEYWORD` 子指令：查詢 Anime1 目錄索引並印出可直接下載的分類 URL，不必自行到網站複製網址；結果以 Rich table 呈現，URL 欄位固定寬度確保任何終端寬度都不會被裁切。
+- 新增 `anicat.catalog` 模組（`fetch_catalog` / `search_catalog` / `parse_catalog`）與 `AnimeEntry` model，並由 root package re-export `AnimeEntry`。
+
+### Changed
+
+- 省略必要參數時的互動提問邏輯抽成共用 helper，`anicat` 與 `anicat search` 行為一致：TTY 下提問，非互動環境直接回報 usage error 而非卡住。
+
+### Fixed
+
+- `anime1.me` 的 `?cat=N` 分類 URL 先前被判定為不支援，但那正是 Anime1 目錄索引使用的連結形式；現已與 `anime1.pw` 的判斷邏輯一致。
+- `__version__` 停留在 `0.1.0` 而 package 已是 `0.2.0`，導致 `anicat --version` 回報錯誤版本；並新增測試比對 distribution metadata 防止再次漂移。
+
+## 0.2.0 - 2026-05-25
+
 ### Added
 
 - 支援 `anime1.pw` 單集、`?cat=` 分類頁與 slug 分類頁下載；此來源直接解析頁面 MP4 source，沿用現有 Range 續傳下載流程。

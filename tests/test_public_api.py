@@ -32,13 +32,15 @@ class PublicApiTests(unittest.TestCase):
         self.assertIs(anicat.JobReport, JobReport)
         self.assertIs(anicat.ParseError, ParseError)
 
+    def test_version_matches_distribution_metadata(self):
+        # Guards against __version__ drifting from pyproject, which silently
+        # made `anicat --version` report a stale number.
+        self.assertEqual(anicat.__version__, importlib.metadata.version("anicat"))
+
     def test_package_declares_typed_marker(self):
         marker = importlib.resources.files("anicat").joinpath("py.typed")
 
         self.assertTrue(marker.is_file())
-
-    def test_version_matches_distribution_metadata(self):
-        self.assertEqual(anicat.__version__, importlib.metadata.version("anicat"))
 
 
 if __name__ == "__main__":
