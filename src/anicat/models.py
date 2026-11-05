@@ -33,6 +33,19 @@ class VideoStreamResponse(Protocol):
 
 
 @dataclass(frozen=True)
+class AnimeEntry:
+    """One anime series listed in the Anime1 catalogue index."""
+
+    anime_id: int
+    title: str
+    episodes: str
+    year: str
+    season: str
+    subtitle_group: str
+    url: str
+
+
+@dataclass(frozen=True)
 class Episode:
     """Resolved metadata required to download a single Anime1 episode."""
 
@@ -40,6 +53,7 @@ class Episode:
     title: str
     stream_url: str
     cookies: Mapping[str, str] = field(default_factory=dict)
+    stream_type: Literal["direct", "hls"] = "direct"
 
 
 @dataclass(frozen=True)
