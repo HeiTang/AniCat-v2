@@ -100,6 +100,29 @@ class GuiWorkerTests(unittest.TestCase):
         )
 
     @patch("anicat.gui.AniCatService")
+    def test_real_stage_callbacks_become_gui_item_states(self, factory):
+        url = "https://anime1.cc/1-1-1"
+        factory.return_value.collect_episode_urls.return_value = [url]
+
+        def download(_urls, *, on_done, on_stage):
+            for stage in ("resolving", "downloading", "verifying", "merging", "validating"):
+                on_stage(url, stage)
+            on_done(JobReport(url=url, error="decode rejected"))
+
+        factory.return_value.download_many.side_effect = download
+        events: Queue[GuiEvent | None] = Queue()
+        run_download([url], Path("/tmp/output"), events)
+        values = drain(events)
+        items = [event for event in values if event is not None and event.kind == "item"]
+        self.assertEqual(
+            [event.state for event in items],
+            ["queued", "resolving", "downloading", "verifying", "merging", "validating", "error"],
+        )
+        self.assertTrue(all(event.detail for event in items[1:]))
+        self.assertNotIn("done", [event.state for event in items])
+        self.assertIsNone(values[-1])
+
+    @patch("anicat.gui.AniCatService")
     def test_job_result_becomes_observable_item_state(self, factory):
         url = "https://anime1.me/1"
         factory.return_value.collect_episode_urls.return_value = [url]
@@ -110,7 +133,7 @@ class GuiWorkerTests(unittest.TestCase):
             10,
             10,
         )
-        factory.return_value.download_many.side_effect = lambda _urls, on_done: on_done(
+        factory.return_value.download_many.side_effect = lambda _urls, on_done, on_stage: on_done(
             JobReport(url=url, result=result)
         )
         events: Queue[GuiEvent | None] = Queue()

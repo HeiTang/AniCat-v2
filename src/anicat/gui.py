@@ -11,12 +11,12 @@ from time import monotonic
 from typing import Literal
 
 from .ffmpeg import find_ffmpeg
-from .models import JobReport
+from .models import DownloadStage, JobReport
 from .options import DownloadOptions
 from .service import AniCatService
 from .urls import split_urls
 
-GuiItemState = Literal["queued", "done", "skipped", "error"]
+GuiItemState = DownloadStage | Literal["queued", "done", "skipped", "error"]
 
 
 @dataclass(frozen=True)
@@ -81,7 +81,10 @@ def run_download(urls: list[str], output: Path, events: Queue[GuiEvent | None]) 
                     )
                 )
 
-        service.download_many(episodes, on_done=done)
+        def stage(url: str, value: DownloadStage) -> None:
+            events.put(GuiEvent("item", url=url, state=value, detail=STAGE_DETAIL[value]))
+
+        service.download_many(episodes, on_done=done, on_stage=stage)
     except Exception as error:
         events.put(GuiEvent("status", text="這批工作沒有完成", detail=str(error)))
     finally:
@@ -110,9 +113,23 @@ COLORS = {
 
 STATUS_COPY: dict[GuiItemState, tuple[str, str, str]] = {
     "queued": ("等待中", COLORS["queued_bg"], COLORS["queued_fg"]),
+    "resolving": ("解析來源", COLORS["queued_bg"], COLORS["queued_fg"]),
+    "downloading": ("下載中", COLORS["queued_bg"], COLORS["queued_fg"]),
+    "verifying": ("檢查分段", COLORS["queued_bg"], COLORS["queued_fg"]),
+    "merging": ("合併影片", COLORS["queued_bg"], COLORS["queued_fg"]),
+    "validating": ("全片驗證", COLORS["queued_bg"], COLORS["queued_fg"]),
     "done": ("完成", COLORS["done_bg"], COLORS["done_fg"]),
     "skipped": ("已存在", COLORS["skipped_bg"], COLORS["skipped_fg"]),
     "error": ("失敗", COLORS["error_bg"], COLORS["error_fg"]),
+}
+
+
+STAGE_DETAIL: dict[DownloadStage, str] = {
+    "resolving": "正在解析作品與播放來源…",
+    "downloading": "正在下載影片並檢查接收內容…",
+    "verifying": "正在檢查分段銜接與整理時間軸…",
+    "merging": "正在合併影片與處理音訊…",
+    "validating": "正在完整解碼驗證，通過後才會完成…",
 }
 
 
@@ -448,6 +465,7 @@ def main() -> int:
         elif event.kind == "queue":
             total.set(event.total)
             summary.set(f"0 / {event.total} 集已完成")
+            status_text.set("正在下載與驗證，請查看各集狀態")
         elif event.kind == "item" and event.url and event.state:
             _row, badge, _title, detail = ensure_item(event.url)
             set_badge(badge, event.state)
@@ -461,7 +479,7 @@ def main() -> int:
                 finished.set(finished.get() + 1)
                 detail.configure(text=event.detail, fg="#D7CBA7")
             else:
-                detail.configure(text="等待下載", fg=COLORS["dark_muted"])
+                detail.configure(text=event.detail or "等待下載", fg=COLORS["dark_muted"])
             summary.set(f"{finished.get()} / {total.get()} 集已完成")
 
     def start() -> None:
