@@ -53,6 +53,7 @@ class Episode:
     title: str
     stream_url: str
     cookies: Mapping[str, str] = field(default_factory=dict)
+    stream_type: Literal["direct", "hls"] = "direct"
 
 
 @dataclass(frozen=True)

@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from .errors import AniCatError
 
-SourceKind = Literal["anime1_me", "anime1_pw"]
+SourceKind = Literal["anime1_me", "anime1_pw", "anime1_cc", "anime1_in"]
 ANIME1_ME_SOURCE: Final[SourceKind] = "anime1_me"
 ANIME1_PW_SOURCE: Final[SourceKind] = "anime1_pw"
 ANIME1_ME_HOST = "anime1.me"
@@ -42,6 +42,10 @@ def is_season_url(url: str) -> bool:
 
     parsed = urlparse(url)
     kind = source_kind(url)
+    if kind == "anime1_cc":
+        return bool(re.fullmatch(r"/\d+(?:/\d+)?/?", parsed.path))
+    if kind == "anime1_in":
+        return not is_episode_url(url) and is_category_slug_path(parsed.path)
     if kind == ANIME1_ME_SOURCE:
         if is_numeric_episode_path(parsed.path):
             return False
@@ -58,7 +62,13 @@ def is_season_url(url: str) -> bool:
 def is_episode_url(url: str) -> bool:
     """Return whether a URL points to an Anime1 episode page."""
 
-    return source_kind(url) is not None and is_numeric_episode_path(urlparse(url).path)
+    kind = source_kind(url)
+    path = urlparse(url).path
+    if kind == "anime1_cc":
+        return bool(re.fullmatch(r"/\d+-\d+-\d+/?", path))
+    if kind == "anime1_in":
+        return bool(re.fullmatch(r"/[\w-]+-\d{8}/?", path))
+    return kind is not None and is_numeric_episode_path(path)
 
 
 def has_numeric_category_query(query: str) -> bool:
@@ -103,6 +113,12 @@ def source_kind(url: str) -> SourceKind | None:
     if host.startswith("www."):
         host = host[4:]
 
+    if parsed.username is not None or parsed.password is not None:
+        return None
+    if host == "anime1.cc":
+        return "anime1_cc"
+    if host == "anime1.in":
+        return "anime1_in"
     if host == ANIME1_ME_HOST:
         return ANIME1_ME_SOURCE
     if host == ANIME1_PW_HOST:
