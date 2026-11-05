@@ -456,7 +456,8 @@ def main() -> int:
             return existing
         row = tk.Frame(queue_inner, bg="#2B3B31", padx=12, pady=10)
         row.pack(fill="x", pady=(0, 8))
-        badge = tk.Label(row, text="等待中", font=("Menlo", 8, "bold"), padx=7, pady=4)
+        # Reserve four CJK characters so stage changes do not reflow the row.
+        badge = tk.Label(row, text="等待中", font=("Menlo", 8, "bold"), width=8, padx=7, pady=4)
         badge.pack(side="left", anchor="n")
         set_badge(badge, "queued")
         middle = tk.Frame(row, bg="#2B3B31")
