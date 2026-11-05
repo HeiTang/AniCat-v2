@@ -57,6 +57,41 @@ anicat --help
     anicat --help
     ```
 
+### C. 桌面介面（開發版）
+
+完成本機安裝後可執行：
+
+```bash
+anicat-gui
+```
+
+視窗提供網址佇列、儲存資料夾選擇與右側逐集狀態卡，並共用 CLI 的下載服務。
+狀態只會顯示實際事件：等待中、完成、已存在或失敗，不顯示虛假的百分比進度。
+它需要 Python Tk 支援；若系統沒有 Tk，請改用 CLI。支援來源與 CLI 相同，
+開發版支援 `anime1.me`、`anime1.pw`、`anime1.cc` 與 `anime1.in`。
+
+一般安裝會透過 `imageio-ffmpeg` 一起安裝影片處理工具 FFmpeg，不需要另外設定 PATH。
+桌面介面會在開始下載前檢查工具是否能正常執行；系統已有可用的 FFmpeg 時優先沿用，
+否則使用套件內附的版本。檢查失敗會先顯示安裝說明，不會啟動下載。
+可隨時點「工具安裝說明」，依原本安裝方式選擇修復指令：
+
+```bash
+# uv tool 安裝：不需要專案資料夾
+uv tool upgrade anicat --reinstall-package imageio-ffmpeg
+
+# pip 安裝：在原本安裝 AniCat 的 Python 環境執行
+python -m pip install --force-reinstall "imageio-ffmpeg>=0.8.1,<0.9"
+```
+
+```bash
+# 在專案資料夾執行
+uv sync --locked --reinstall-package imageio-ffmpeg
+```
+
+常見 macOS、Windows、Linux 平台有內附執行檔的 wheel；未提供對應 wheel 的平台
+仍需自行安裝 FFmpeg。工具來自 [imageio-ffmpeg](https://github.com/imageio/imageio-ffmpeg)，
+其套件與內附 FFmpeg 的授權資訊由上游提供。
+
 ## HLS 來源（開發版）
 
 `anime1.cc` 與 `anime1.in` 使用 HLS，需要可執行的 [FFmpeg](https://ffmpeg.org/download.html)。

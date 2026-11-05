@@ -24,6 +24,7 @@ Changelog = "https://github.com/HeiTang/AniCat-v2/blob/main/CHANGELOG.md"
 
 [project.scripts]
 anicat = "anicat.cli:main"
+anicat-gui = "anicat.gui:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
