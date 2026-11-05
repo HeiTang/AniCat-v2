@@ -17,6 +17,7 @@ from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
+from time import sleep
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -31,6 +32,7 @@ _PTS_MODULUS = 1 << 33
 _PTS_HALF_RANGE = 1 << 32
 _DEFAULT_WORKERS = 4
 _CHUNK_SIZE = 256 * 1024
+_YIELD_PACKETS = 1024
 
 
 class SegmentIntegrityError(DownloadError):
@@ -443,6 +445,9 @@ def inspect_ts_segment(data: bytes, segment_index: int = 0) -> SegmentInspection
     last_pts: dict[int, int] = {}
     video_pids: set[int] = set()
     for packet_number in range(packet_count):
+        # A nonzero pause lets Tk acquire the GIL amid competing segment workers.
+        if packet_number and packet_number % _YIELD_PACKETS == 0:
+            sleep(0.001)
         offset = packet_number * TS_PACKET_SIZE
         packet = data[offset : offset + TS_PACKET_SIZE]
         if packet[0] != _TS_SYNC_BYTE:
@@ -870,7 +875,11 @@ def write_local_playlist(
         normalized = bytearray(original)
         rewritten = 0
         if offsets:
-            for packet_offset in range(0, len(normalized), TS_PACKET_SIZE):
+            for packet_number, packet_offset in enumerate(
+                range(0, len(normalized), TS_PACKET_SIZE)
+            ):
+                if packet_number and packet_number % _YIELD_PACKETS == 0:
+                    sleep(0.001)
                 packet = normalized[packet_offset : packet_offset + TS_PACKET_SIZE]
                 pid = ((packet[1] & 0x1F) << 8) | packet[2]
                 adaptation_control = (packet[3] >> 4) & 0x03

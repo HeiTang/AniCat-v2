@@ -2,6 +2,7 @@ import hashlib
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from anicat.errors import DownloadError
 from anicat.hls_segments import (
@@ -39,6 +40,24 @@ class SegmentInspectionTests(unittest.TestCase):
         self.assertEqual(evidence.sha256, hashlib.sha256(data).hexdigest())
         self.assertEqual(evidence.first_cc_by_pid, {256: 0})
         self.assertEqual(evidence.last_cc_by_pid, {256: 1})
+
+    def test_large_segment_yields_without_skipping_packets_or_evidence(self):
+        data = b"".join(_packet(256, index % 16, b"payload") for index in range(2050))
+        with patch("anicat.hls_segments.sleep") as pause:
+            evidence = inspect_ts_segment(data, 7)
+        self.assertGreaterEqual(pause.call_count, 2)
+        pause.assert_called_with(0.001)
+        self.assertEqual(evidence.packet_count, 2050)
+        self.assertEqual(evidence.sha256, hashlib.sha256(data).hexdigest())
+        self.assertEqual(evidence.last_cc_by_pid, {256: 1})
+
+        corrupt = bytearray(data)
+        corrupt[2048 * 188 + 1] |= 0x80
+        with (
+            patch("anicat.hls_segments.sleep"),
+            self.assertRaisesRegex(SegmentIntegrityError, "transport_error"),
+        ):
+            inspect_ts_segment(bytes(corrupt), 7)
 
     def test_internal_continuity_gap_is_rejected(self):
         data = _packet(256, 0, b"first") + _packet(256, 2, b"missing")
@@ -198,7 +217,9 @@ class PlaylistParsingTests(unittest.TestCase):
             second_path = segment_dir / "segment-000001.ts"
             third_path = segment_dir / "segment-000002.ts"
             first_path.write_bytes(_packet(256, 0, b"first") + _packet(256, 1, b"last"))
-            second_path.write_bytes(_packet(256, 0, b"reset") + _packet(256, 1, b"next"))
+            second_path.write_bytes(
+                b"".join(_packet(256, index % 16, b"reset") for index in range(2050))
+            )
             third_path.write_bytes(_packet(256, 2, b"continued") + _packet(256, 3, b"after"))
             specs = (
                 SegmentSpec("https://cdn.test/0.ts", 1),
