@@ -51,7 +51,7 @@ header {
   letter-spacing: -1px;
   text-decoration: none;
 }
-.brand span {
+.brand-description {
   font-size: 12px;
   font-weight: 400;
   letter-spacing: 1px;
@@ -73,13 +73,6 @@ nav a {
   padding-top: 85px;
   padding-bottom: 90px;
 }
-.eyebrow {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  color: #66705d;
-  margin: 0 0 24px;
-}
 h1 {
   font-size: clamp(44px, 5.5vw, 70px);
   letter-spacing: -3px;
@@ -90,6 +83,13 @@ h1 {
 .orange {
   color: var(--accent);
 }
+.wordmark {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-weight: 700;
+  font-kerning: none;
+  letter-spacing: normal;
+  white-space: nowrap;
+}
 .intro {
   font-size: 17px;
   color: #57604f;
@@ -97,12 +97,14 @@ h1 {
 .actions {
   display: flex;
   align-items: center;
-  gap: 25px;
+  flex-wrap: wrap;
+  gap: 16px 24px;
   margin: 30px 0 18px;
 }
 .button {
   display: inline-flex;
-  gap: 35px;
+  align-items: center;
+  gap: 10px;
   background: var(--accent);
   color: #fff;
   padding: 14px 23px;
@@ -110,88 +112,106 @@ h1 {
   font-weight: 650;
 }
 .plain {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   font-size: 13px;
 }
 .note {
   font-size: 12px;
   color: #626b5b;
 }
+.icon-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+.icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .demo {
+  margin: 0;
   background: #203027;
   color: #e8eddf;
+  border: 1px solid #3c5141;
+  border-radius: 14px;
   box-shadow: 14px 14px 0 #dfe1d2;
-  transform: rotate(-1deg);
 }
 .window {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
   padding: 14px 20px;
-  font-size: 11px;
   border-bottom: 1px solid #526047;
-  color: #b4bda9;
 }
-.window span:first-child {
-  letter-spacing: 4px;
-  color: #d4a777;
-}
-.terminal {
-  padding: 28px 25px;
-  font-family: ui-monospace, monospace;
-  font-size: 13px;
-  overflow-wrap: anywhere;
-}
-.muted {
-  color: #b0bca7;
+.window > span {
+  margin-left: auto;
+  color: #bdc7b5;
   font-size: 12px;
 }
-.prompt {
-  color: #e7ae75;
-}
-.rule {
-  border-top: 1px dashed #53614a;
-  margin: 28px 0;
-}
-.file {
-  display: flex;
-  gap: 14px;
-  align-items: center;
-  background: #304132;
+.app-preview {
+  display: grid;
+  gap: 10px;
   padding: 20px;
-  margin-top: 36px;
 }
-.file small {
-  display: block;
-  color: #bcc7b3;
-  font-size: 10px;
-  margin-top: 5px;
+.preview-input,
+.preview-queue strong,
+.preview-queue li,
+.preview-done {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
-.filetag {
-  margin-left: auto;
-  border: 1px solid #82926f;
-  padding: 2px 6px;
-  font-size: 10px;
+.preview-input {
+  padding: 9px 12px;
+  border: 1px solid #526047;
+  border-radius: 6px;
+  font: 12px/1.5 ui-monospace, monospace;
+  overflow-wrap: anywhere;
+}
+.preview-input .icon,
+.preview-queue strong .icon {
+  color: #efb684;
+}
+.preview-queue {
+  margin-top: 4px;
+  padding: 12px 14px;
+  border-radius: 6px;
+  background: #304132;
+  font-size: 13px;
+}
+.preview-queue ul {
+  padding: 0;
+  margin: 8px 0 0;
+  list-style: none;
+}
+.preview-queue li {
+  justify-content: space-between;
+  padding: 7px 0;
+  border-top: 1px solid #526047;
+}
+.preview-done {
+  color: #c9e3ad;
+}
+.preview-done .icon {
+  width: 15px;
+  height: 15px;
+}
+.preview-pending {
+  color: #efb684;
 }
 .caption {
-  font-size: 10px;
-  color: #b5bfad;
+  color: #bdc7b5;
   text-align: right;
   padding: 0 20px 14px;
-}
-.strip {
-  border-block: 1px solid var(--border);
-}
-.strip-inner {
-  display: flex;
-  justify-content: space-between;
-  padding-top: 20px;
-  padding-bottom: 20px;
-  font-size: 13px;
-  color: #5b6453;
-}
-.strip span::before {
-  content: "＋";
-  color: var(--accent);
-  margin-right: 14px;
+  font-size: 12px;
 }
 .section {
   padding-top: 76px;
@@ -215,19 +235,35 @@ h3 {
   gap: 45px;
 }
 .steps article {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 14px;
+  align-content: start;
+  align-items: start;
   border-top: 1px solid var(--border);
   padding-top: 22px;
 }
-.number {
-  font-family: ui-monospace, monospace;
-  font-size: 12px;
-  color: var(--accent);
+.step-icon {
+  grid-row: span 2;
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: #f0e0d2;
+  color: #973a1e;
+}
+.steps h3 {
+  line-height: 1.4;
+  margin: 0 0 6px;
+}
+.steps p {
+  margin: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
 }
 p {
   color: #56604f;
-}
-.steps p {
-  font-size: 14px;
 }
 .start {
   background: #e4e7da;
@@ -237,7 +273,7 @@ p {
   grid-template-columns: 1fr 1.25fr;
   gap: 80px;
 }
-.start-grid > div > p:not(.eyebrow) {
+.start-grid > div > p {
   max-width: 360px;
 }
 .command {
@@ -258,6 +294,7 @@ pre {
   line-height: 1.8;
 }
 button {
+  min-height: 44px;
   background: transparent;
   border: 1px solid #778466;
   padding: 8px 13px;
@@ -340,8 +377,8 @@ footer {
   background: white;
   padding: 15px;
 }
-#copy-status {
-  min-height: 22px;
+.copy-status {
+  margin: 4px 0 0;
   font-size: 12px;
 }
 @media (max-width: 760px) {
@@ -353,7 +390,7 @@ footer {
     display: block;
     align-items: flex-start;
   }
-  .brand span {
+  .brand-description {
     display: none;
   }
   nav {
@@ -369,30 +406,10 @@ footer {
   .start-grid > div {
     min-width: 0;
   }
-  .demo,
-  .terminal {
-    min-width: 0;
-  }
-  .window {
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  .terminal p {
-    overflow-wrap: anywhere;
-    word-break: break-word;
-  }
   .hero {
     grid-template-columns: 1fr;
     padding-top: 55px;
     gap: 35px;
-  }
-  .demo {
-    transform: none;
-  }
-  .strip-inner {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 15px;
   }
   .steps,
   .start-grid,
@@ -457,7 +474,7 @@ footer {
   height: auto;
   flex: none;
 }
-.brand span {
+.brand-description {
   margin-left: 0;
 }
 .hero-visual {
@@ -466,9 +483,6 @@ footer {
   position: relative;
   transform: rotate(-1deg);
   transform-origin: top right;
-}
-.hero-visual .demo {
-  transform: none;
 }
 .mascot {
   display: block;
