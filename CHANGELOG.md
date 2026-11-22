@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+
+- 新增桌面下載介面、FFmpeg 自動定位與安裝引導。
+- 新增 anime1.cc／anime1.in HLS 與 AES-128 下載、分段完整性、片長及全片解碼驗證。
+- 新增 `website/` 靜態介紹與使用說明，可在本機預覽。
+
+### Changed
+
+- 開發與 CI 改用 uv；PyPI distribution 命名為 anicat。
+
 ## 0.3.0 - 2026-08-19
 
 ### Added

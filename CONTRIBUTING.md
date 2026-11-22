@@ -24,7 +24,7 @@ AniCat-v2 是一個 CLI 下載工具，不是一次性的腳本集合。任何�
 ├── .github/workflows/ci.yml    # CI quality gate
 ├── .pre-commit-config.yaml     # Pre-commit Hooks
 ├── pyproject.toml
-├── poetry.lock
+├── uv.lock
 ├── CHANGELOG.md
 ├── README.md
 └── CONTRIBUTING.md
@@ -35,30 +35,30 @@ AniCat-v2 是一個 CLI 下載工具，不是一次性的腳本集合。任何�
 - 需求：
 
   - Python `>=3.12,<4.0`
-  - Poetry
+  - uv
 
 - 安裝：
 
    ```bash
-   poetry install --with dev
-   poetry run pre-commit install
+   uv sync --locked
+   uv run pre-commit install
    ```
 
 - 常用檢查：
 
    ```bash
-   poetry run ruff format --check .
-   poetry run ruff check .
-   poetry run pyright
-   poetry run python -m unittest
-   poetry run python -m compileall src/anicat tests
-   poetry check
+   uv run ruff format --check .
+   uv run ruff check .
+   uv run pyright
+   uv run python -m unittest
+   uv run python -m compileall src/anicat tests
+   uv lock --check
    ```
 
 - 完整 pre-commit：
 
    ```bash
-   poetry run pre-commit run --all-files
+   uv run pre-commit run --all-files
    ```
 
 ## 設計原則
@@ -96,14 +96,14 @@ AniCat-v2 是一個 CLI 下載工具，不是一次性的腳本集合。任何�
 - 預設測試不能依賴外部網站。
 
    ```bash
-   poetry run python -m unittest
+   uv run python -m unittest
    ```
 
 - 真實 Anime1 smoke test 只在手動指定 env var 時執行：
 
    ```bash
-   ANICAT_RUN_INTEGRATION=1 poetry run python -m unittest tests.test_integration_smoke
-   ANICAT_RUN_PW_INTEGRATION=1 poetry run python -m unittest tests.test_integration_smoke
+   ANICAT_RUN_INTEGRATION=1 uv run python -m unittest tests.test_integration_smoke
+   ANICAT_RUN_PW_INTEGRATION=1 uv run python -m unittest tests.test_integration_smoke
    ```
 
 - 測試要求：
@@ -167,13 +167,13 @@ RC / release 前確認：
 4. 跑完整品質門檻：
 
    ```bash
-   poetry run ruff format --check .
-   poetry run ruff check .
-   poetry run pyright
-   poetry run python -m unittest
-   poetry run python -m compileall src/anicat tests
-   poetry check
-   poetry build
+   uv run ruff format --check .
+   uv run ruff check .
+   uv run pyright
+   uv run python -m unittest
+   uv run python -m compileall src/anicat tests
+   uv lock --check
+   uv build
    ```
 
 5. 需要時跑 opt-in smoke test。

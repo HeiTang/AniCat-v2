@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="website/assets/anicat-logo-readme.svg" alt="AniCat 主 Logo：橘白像素貓" width="192" height="192">
+</p>
+
 # AniCat-v2
 
 > 穩定、快速、可續傳的 Anime1 命令列下載器。
@@ -23,8 +27,8 @@ AniCat-v2 是一個專注於 Anime1 下載體驗的 CLI 工具。它可以把單
     |---|---|---|---|
     | `anime1.me` | `https://anime1.me/15651` | `https://anime1.me/category/...` | 支援 |
     | `anime1.pw` | `https://anime1.pw/349` | `https://anime1.pw/?cat=60`、`https://anime1.pw/<slug>` | 支援 |
-    | `anime1.cc` | HLS / m3u8 | HLS / m3u8 | 尚未支援 |
-    | `anime1.in` | HLS / m3u8 | HLS / m3u8 | 尚未支援 |
+    | `anime1.cc` | 三段數字單集網址 | 數字 ID 全集網址 | 開發版 HLS，需 FFmpeg |
+    | `anime1.in` | 含集數的 slug 網址 | 作品 slug 全集網址 | 開發版 HLS，需 FFmpeg |
 
 
 ## 安裝方式
@@ -48,14 +52,91 @@ anicat --help
 - 安裝套件
 
     ```bash
-    # 使用 Poetry
-    poetry install
-    poetry run anicat --help
+    # 使用 uv
+    uv sync --locked
+    uv run anicat --help
 
     # 使用一般 Python 環境
     python3 -m pip install .
     anicat --help
     ```
+
+### C. 桌面介面（開發版）
+
+在專案目錄切換到 `dev`，用 uv 安裝並啟動桌面介面。
+
+```bash
+git switch dev
+uv sync --locked
+uv run anicat-gui
+```
+
+若使用 pip 安裝開發版，可在同一個 Python 環境執行 `anicat-gui`。
+
+視窗提供網址佇列、儲存資料夾選擇與右側逐集狀態卡，並共用 CLI 的下載服務。
+狀態依實際工作更新：等待中、解析來源、下載中、檢查分段、合併影片、全片驗證，
+通過驗證後才顯示完成；已存在或失敗也會明確標示，不用計時猜測百分比。
+它需要 Python Tk 支援；若系統沒有 Tk，請改用 CLI。支援來源與 CLI 相同，
+開發版支援 `anime1.me`、`anime1.pw`、`anime1.cc` 與 `anime1.in`。
+GUI 預設存到 `~/Downloads/AniCat`。
+
+一般安裝會透過 `imageio-ffmpeg` 一起安裝影片處理工具 FFmpeg，不需要另外設定 PATH。
+桌面介面會在開始下載前檢查工具是否能正常執行；系統已有可用的 FFmpeg 時優先沿用，
+否則使用套件內附的版本。檢查失敗會先顯示安裝說明，不會啟動下載。
+可隨時點「工具安裝說明」，依原本安裝方式選擇修復指令：
+
+```bash
+# uv tool 安裝：不需要專案資料夾
+uv tool upgrade anicat --reinstall-package imageio-ffmpeg
+
+# pip 安裝：在原本安裝 AniCat 的 Python 環境執行
+python -m pip install --force-reinstall "imageio-ffmpeg>=0.8.1,<0.9"
+```
+
+```bash
+# 在專案資料夾執行
+uv sync --locked --reinstall-package imageio-ffmpeg
+```
+
+常見 macOS、Windows、Linux 平台有內附執行檔的 wheel；未提供對應 wheel 的平台
+仍需自行安裝 FFmpeg。工具來自 [imageio-ffmpeg](https://github.com/imageio/imageio-ffmpeg)，
+其套件與內附 FFmpeg 的授權資訊由上游提供。
+
+## HLS 來源（開發版）
+
+`anime1.cc` 與 `anime1.in` 使用 HLS，需要可執行的 [FFmpeg](https://ffmpeg.org/download.html)。
+程式會先使用 PATH 中通過 `ffmpeg -version` 檢查的系統版本；找不到時自動改用
+`imageio-ffmpeg` 內附版本，不需要另外設定 PATH。若兩者都無法執行，請在專案資料夾修復依賴：
+
+```bash
+uv sync --locked --reinstall-package imageio-ffmpeg
+```
+
+未提供對應平台 wheel 時，才需要自行安裝 FFmpeg（macOS 使用 Homebrew 可執行
+`brew install ffmpeg`）。
+HLS 下載不使用 direct MP4 的 `.part` 續傳；影像直接複製，音訊轉成 AAC 並同步時間戳。
+只有 FFmpeg 成功產生非空 MP4 後才會替換目的檔。
+下載前會固定一次已結束的 media playlist snapshot，並把每個 segment 完整抓到暫存目錄；
+每段都核對 HTTP `Content-Length`、非空、188-byte TS framing、TEI 與每個 PID 的內部 continuity
+counter。中段 404、短讀取、掉 packet 或未通過結構檢查時，整集拒絕且不碰既有成品。
+只有 playlist 明示 `#EXT-X-DISCONTINUITY` 的邊界才允許 CC/時間軸重設；FFmpeg 使用保留原始
+段證據的 header-only CC 正規化副本，不會用 warning whitelist 掩蓋 Packet corrupt。
+完成後仍以 FFmpeg progress duration 與 `#EXTINF` 總長比對，並做全片解碼驗證。
+AES-128（identity key format）支援 CBC/PKCS7、key rotation、明示 IV 與 media-sequence 隱式 IV；
+每個 key 都要求 HTTP 完整 16 bytes，僅留在記憶體，不會寫入 log 或暫存檔。live playlist、SAMPLE-AES、fMP4、
+byte-range 與 `#EXT-X-GAP` 仍明確拒絕，不會當成成功。
+
+```bash
+anicat https://anime1.cc/681899930-01-0142
+anicat https://anime1.in/2023-xian-ni-10142000
+```
+
+若 `anime1.in` 預設來源無法連線，可貼上該作品網址加上 `#other`，與原站一樣選用分流 2。
+只會使用原頁列出的同站播放器；沒有該分流時會回報錯誤，不會偷偷切回預設來源。
+
+HLS playlist 驗證或單次工作階段失敗時，`--retries` 會從頭重試有限次數；
+完成片長、診斷與全片解碼驗證前不會替換既有檔案。工作階段外重新執行仍會從頭下載，HLS 不支援 `.part` 續傳。
+`--timeout` 是來源連線/讀取閒置逾時，不是整集下載的總時限，避免正常長集數被誤殺。
 
 ## 使用方法
 
@@ -192,6 +273,22 @@ for entry in matches:
 
 歡迎任何形式的貢獻！請先閱讀 [CONTRIBUTING.md](CONTRIBUTING.md) 以了解專案規範與流程。
 
+<p align="center">
+  <img src="website/assets/anicat-mascot-readme.svg" alt="AniCat 吉祥物：繫橘色領巾的黑白像素貓" width="128" height="128">
+</p>
+
 ## License
 
 本專案採用 GPL-3.0 License，詳見 [LICENSE](LICENSE) 文件。
+
+## 介紹網站（本機預覽）
+
+`website/` 提供靜態介紹與操作說明，不需 Node 或前端建置工具。
+
+```bash
+python3 -m http.server 8765 --bind 127.0.0.1 --directory website
+```
+
+開啟 `http://127.0.0.1:8765`。網站安裝範例指向已發布的 v0.3.0，該版本尚未包含
+HLS 與桌面介面。這兩項功能目前可在 `dev` 分支使用。
+網站尚未公開部署，PyPI 預計使用套件名稱 `anicat`，正式發布前仍使用 GitHub 安裝。

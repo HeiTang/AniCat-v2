@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="AniCat 是開源的 Anime1 桌面下載工具。安裝開發版 App，將單集、整季或多個影片存到電腦。"
+    />
+    <meta name="theme-color" content="#f4f1e9" />
+    <title>AniCat.｜Anime1 桌面下載工具</title>
+    <link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="48x48" href="assets/favicon-48.png" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <svg class="icon-defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+      <symbol id="icon-download" viewBox="0 0 24 24">
+        <path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4" />
+      </symbol>
+      <symbol id="icon-folder" viewBox="0 0 24 24">
+        <path d="M3 6h7l2 3h9v10H3z" />
+      </symbol>
+      <symbol id="icon-link" viewBox="0 0 24 24">
+        <path d="m10 13 4-4m-6 2-3 3a3.5 3.5 0 0 0 5 5l3-3m-2-8 3-3a3.5 3.5 0 0 1 5 5l-3 3" />
+      </symbol>
+      <symbol id="icon-queue" viewBox="0 0 24 24">
+        <path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" />
+      </symbol>
+      <symbol id="icon-check" viewBox="0 0 24 24">
+        <path d="m5 12 4 4L19 6" />
+      </symbol>
+    </svg>
+    <a class="skip" href="#main">跳到主要內容</a>
+    <header class="wrap">
+      <a class="brand" href="#">
+        <img class="pixel-art" src="assets/anicat-logo-mark.png" alt="" width="44" height="32" />
+        <span class="wordmark">AniCat<span class="orange">.</span></span>
+        <span class="brand-description"> / 動畫下載工具</span>
+      </a>
+      <nav aria-label="主要導覽">
+        <a href="#start">安裝 App</a><a href="#sources">支援來源</a
+        ><a href="https://github.com/HeiTang/AniCat-v2">GitHub ↗</a>
+      </nav>
+    </header>
+    <main id="main">
+      <section class="hero wrap">
+        <div>
+          <h1><span class="wordmark">AniCat<span class="orange">.</span></span><br />桌面下載工具</h1>
+          <p class="intro">
+            把 Anime1 網址貼進 App，一次下載單集或整季。選好資料夾，就能在佇列裡查看每集進度。
+          </p>
+          <div class="actions">
+            <a class="button" href="#start">
+              <svg class="icon" aria-hidden="true"><use href="#icon-download" /></svg> 安裝桌面 App
+            </a>
+            <a class="plain" href="#cli">命令列版 v0.3.0</a>
+          </div>
+          <p class="note">桌面 App 為開發預覽，需從原始碼安裝。</p>
+        </div>
+        <div class="hero-visual">
+          <img
+            class="mascot pixel-art"
+            src="assets/anicat-mascot-mark.png"
+            alt="AniCat 吉祥物：繫橘色領巾的黑白像素貓"
+            width="92"
+            height="97"
+          />
+          <figure class="demo">
+            <div class="window">
+              <img class="pixel-art" src="assets/anicat-logo-mark.png" alt="" width="28" height="20" />
+              <strong class="wordmark">AniCat<span class="orange">.</span></strong>
+              <span>下載工作區</span>
+            </div>
+            <div class="app-preview">
+              <div class="preview-input">
+                <svg class="icon" aria-hidden="true"><use href="#icon-link" /></svg>
+                <span>https://anime1.me/15651</span>
+              </div>
+              <div class="preview-input">
+                <svg class="icon" aria-hidden="true"><use href="#icon-folder" /></svg>
+                <span>~/Downloads/AniCat</span>
+              </div>
+              <div class="preview-queue">
+                <strong><svg class="icon" aria-hidden="true"><use href="#icon-queue" /></svg> 下載佇列</strong>
+                <ul>
+                  <li><span>第 01 集</span><span class="preview-done"><svg class="icon" aria-hidden="true"><use href="#icon-check" /></svg> 完成</span></li>
+                  <li><span>第 02 集</span><span class="preview-pending">下載中</span></li>
+                  <li><span>第 03 集</span><span>等待中</span></li>
+                </ul>
+              </div>
+            </div>
+            <figcaption class="caption">桌面 App 介面示意</figcaption>
+          </figure>
+        </div>
+      </section>
+      <section class="start section" id="start">
+        <div class="wrap start-grid">
+          <div>
+            <h2>安裝桌面 App</h2>
+            <p>
+              先準備 Git、支援 Tk 的 Python 3.12 以上版本，以及
+              <a href="https://docs.astral.sh/uv/getting-started/installation/">uv</a>。
+              在終端機執行下列指令，開啟開發預覽版。
+            </p>
+            <p class="note">
+              目前尚無桌面安裝包。HLS 所需的 FFmpeg 通常會隨依賴一起安裝。
+            </p>
+          </div>
+          <div class="commands">
+            <div class="command">
+              <div class="command-label">從 GitHub 原始碼安裝並啟動</div>
+              <pre id="desktop-install"><code>git clone --branch dev https://github.com/HeiTang/AniCat-v2.git
+cd AniCat-v2
+uv sync --locked
+uv run anicat-gui</code></pre>
+              <button type="button" data-copy="desktop-install">複製 App 安裝指令</button>
+              <p class="copy-status" role="status"></p>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="wrap section" id="how">
+        <div class="section-heading">
+          <h2>用 App 下載影片</h2>
+        </div>
+        <div class="steps">
+          <article>
+            <span class="step-icon"><svg class="icon" aria-hidden="true"><use href="#icon-link" /></svg></span>
+            <h3>貼上作品網址</h3>
+            <p>支援單集、分類與季度網址。多個網址可分行貼上。</p>
+          </article>
+          <article>
+            <span class="step-icon"><svg class="icon" aria-hidden="true"><use href="#icon-queue" /></svg></span>
+            <h3>查看下載佇列</h3>
+            <p>整季會展開為逐集任務，可查看下載、驗證和完成狀態。</p>
+          </article>
+          <article>
+            <span class="step-icon"><svg class="icon" aria-hidden="true"><use href="#icon-folder" /></svg></span>
+            <h3>選擇儲存資料夾</h3>
+            <p>影片以 MP4 儲存在本機，App 預設存到 <code>~/Downloads/AniCat</code>。</p>
+          </article>
+        </div>
+      </section>
+      <section class="wrap section" id="sources">
+        <div class="section-heading">
+          <h2>支援什麼，清楚列給你。</h2>
+          <p>已發布版本與開發版本分開標示，避免裝好後才發現功能不同。</p>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <caption class="sr-only">
+              來源支援與限制
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">來源</th>
+                <th scope="col">狀態</th>
+                <th scope="col">下載方式與限制</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">anime1.me</th>
+                <td><span class="badge">已支援</span></td>
+                <td>單集、分類／季度 · 可直接取得 MP4 · 中斷可續傳</td>
+              </tr>
+              <tr>
+                <th scope="row">anime1.pw</th>
+                <td><span class="badge">已支援</span></td>
+                <td>單集、分類／季度 · 可直接取得 MP4 · 中斷可續傳</td>
+              </tr>
+              <tr>
+                <th scope="row">anime1.cc</th>
+                <td><span class="badge pending">開發中</span></td>
+                <td>串流影片下載 · 開發版會一起準備所需工具 · 尚未發布</td>
+              </tr>
+              <tr>
+                <th scope="row">anime1.in</th>
+                <td><span class="badge pending">開發中</span></td>
+                <td>串流影片下載 · 開發版會一起準備所需工具 · 尚未發布</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section class="wrap section start-grid" id="cli" aria-labelledby="cli-title">
+        <div>
+          <h2 id="cli-title">命令列版 v0.3.0</h2>
+          <p>這是 AniCat 已發布的版本。在終端機輸入 <code>anicat</code> 和影片網址即可下載。安裝需要 Git 與 uv。</p>
+          <p><a href="https://github.com/HeiTang/AniCat-v2/releases/tag/v0.3.0">GitHub 發行頁</a></p>
+        </div>
+        <div class="commands">
+          <div class="command">
+            <pre id="install"><code>uv tool install "git+https://github.com/HeiTang/AniCat-v2.git@v0.3.0"</code></pre>
+            <button type="button" data-copy="install">複製 CLI 安裝指令</button>
+            <p class="copy-status" role="status"></p>
+          </div>
+          <div class="command">
+            <pre id="download"><code>anicat https://anime1.me/15651</code></pre>
+            <button type="button" data-copy="download">複製下載指令</button>
+            <p class="copy-status" role="status"></p>
+          </div>
+        </div>
+      </section>
+      <section class="wrap section faq">
+        <div>
+          <h2>卡住了？<br />先看這幾件事。</h2>
+        </div>
+        <div>
+          <details>
+            <summary>安裝後找不到 anicat 指令？</summary>
+            <p>
+              用 uv 從原始碼安裝桌面版時，請在專案目錄執行 <code>uv run anicat-gui</code>。
+              若用 <code>uv tool</code> 安裝命令列版，可執行 <code>uv tool update-shell</code>，
+              重開終端機後再試 <code>anicat --help</code>。
+            </p>
+          </details>
+          <details>
+            <summary>下載失敗後能接續嗎？</summary>
+            <p>
+              可以。能直接取得 MP4 的來源會在同資料夾留下
+              <code>.mp4.part</code> 暫存檔；它不是最後完成的影片，請不要刪除。重新執行原指令即可從暫存位置繼續。
+              開發中的串流影片目前失敗後會從頭下載，尚未發布。
+            </p>
+          </details>
+          <details>
+            <summary>這個網頁可以直接下載影片嗎？</summary>
+            <p>
+              這裡提供介紹與操作說明，下載由安裝在你電腦上的 AniCat
+              執行。<a href="#start">桌面 App</a>可從 <code>dev</code> 分支安裝，需要 Python Tk。
+              已發布的 v0.3.0 提供命令列操作。
+            </p>
+          </details>
+          <details>
+            <summary>如何回報問題？</summary>
+            <p>
+              附上版本、來源網址、執行指令與錯誤訊息，到
+              <a href="https://github.com/HeiTang/AniCat-v2/issues"
+                >GitHub Issues</a
+              >
+              回報。請先移除 cookies 或其他私人資訊。
+            </p>
+          </details>
+        </div>
+      </section>
+    </main>
+    <footer class="wrap">
+      <a class="brand" href="#">
+        <img class="pixel-art" src="assets/anicat-logo-mark.png" alt="" width="44" height="32" />
+        <span class="wordmark">AniCat<span class="orange">.</span></span>
+      </a>
+      <p>讓工具處理下載，讓你專心看故事。</p>
+      <a href="https://github.com/HeiTang/AniCat-v2/blob/main/LICENSE"
+        >授權文件 ↗</a
+      >
+    </footer>
+    <script src="script.js"></script>
+  </body>
+</html>

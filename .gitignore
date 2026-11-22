@@ -5,6 +5,7 @@
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+.venv/
 *.egg-info/
 *.mp4.part
 Anime1_Download/

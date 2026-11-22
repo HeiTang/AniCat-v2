@@ -318,6 +318,24 @@ class Anime1PwExtractor:
         )
 
 
+class Anime1HlsExtractor:
+    """Resolve HLS episodes from anime1.cc and anime1.in."""
+
+    def __init__(self, client: EpisodeSource) -> None:
+        self.client = client
+
+    def season_episode_urls(self, url: str) -> list[str]:
+        from .hls import collect_hls_episode_urls
+
+        return collect_hls_episode_urls(self.client.get_page, url)
+
+    def episode(self, url: str) -> Episode:
+        from .hls import parse_hls_episode
+
+        stream_url, title = parse_hls_episode(self.client.get_page(url), url, self.client.get_page)
+        return Episode(page_url=url, title=title, stream_url=stream_url, stream_type="hls")
+
+
 class Anime1Extractor:
     """Route supported Anime1 URLs to provider-specific extractors."""
 
@@ -325,6 +343,8 @@ class Anime1Extractor:
         self.extractors: dict[SourceKind, EpisodeExtractor] = {
             ANIME1_ME_SOURCE: Anime1MeExtractor(client),
             ANIME1_PW_SOURCE: Anime1PwExtractor(client),
+            "anime1_cc": Anime1HlsExtractor(client),
+            "anime1_in": Anime1HlsExtractor(client),
         }
 
     def season_episode_urls(self, url: str) -> list[str]:

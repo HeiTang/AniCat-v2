@@ -10,7 +10,8 @@ from .client import Anime1Client
 from .downloader import VideoSource, download_episode
 from .errors import AniCatError
 from .extractor import Anime1Extractor, EpisodeSource
-from .models import DownloadProgressEvent, JobReport
+from .hls_downloader import download_hls_episode
+from .models import DownloadProgressEvent, DownloadStageCallback, JobReport
 from .options import DownloadOptions
 from .urls import dedupe, ensure_supported_url, is_episode_url, is_season_url
 
@@ -72,6 +73,7 @@ class AniCatService:
         episode_urls: list[str],
         *,
         on_progress: DownloadProgress | None = None,
+        on_stage: DownloadStageCallback | None = None,
         on_done: JobDone | None = None,
     ) -> list[JobReport]:
         """Download multiple episode URLs concurrently and return job reports."""
@@ -104,6 +106,7 @@ class AniCatService:
                 worker_client(),
                 url,
                 on_progress=on_progress,
+                on_stage=on_stage,
             )
 
         try:
@@ -129,13 +132,16 @@ class AniCatService:
         url: str,
         *,
         on_progress: DownloadProgress | None = None,
+        on_stage: DownloadStageCallback | None = None,
     ) -> JobReport:
         """Resolve and download one episode URL, isolating recoverable failures."""
 
         client = self.client_factory()
 
         try:
-            return self._download_one_with_client(client, url, on_progress=on_progress)
+            return self._download_one_with_client(
+                client, url, on_progress=on_progress, on_stage=on_stage
+            )
         finally:
             close_client(client)
 
@@ -145,6 +151,7 @@ class AniCatService:
         url: str,
         *,
         on_progress: DownloadProgress | None = None,
+        on_stage: DownloadStageCallback | None = None,
     ) -> JobReport:
         """Resolve and download one episode URL using an already-owned client."""
 
@@ -152,17 +159,32 @@ class AniCatService:
         extractor = Anime1Extractor(client)
 
         try:
+            if on_stage:
+                on_stage(url, "resolving")
             episode = extractor.episode(url)
-            result = download_episode(
-                client,
-                episode,
-                self.options.output_dir,
-                chunk_size=self.options.safe_chunk_size,
-                resume=self.options.resume,
-                overwrite=self.options.overwrite,
-                progress=on_progress,
-                stream_retries=self.options.retries,
-            )
+            if episode.stream_type == "hls":
+                result = download_hls_episode(
+                    episode,
+                    self.options.output_dir,
+                    overwrite=self.options.overwrite,
+                    progress=on_progress,
+                    on_stage=on_stage,
+                    timeout=self.options.timeout,
+                    retries=self.options.retries,
+                )
+            else:
+                if on_stage:
+                    on_stage(url, "downloading")
+                result = download_episode(
+                    client,
+                    episode,
+                    self.options.output_dir,
+                    chunk_size=self.options.safe_chunk_size,
+                    resume=self.options.resume,
+                    overwrite=self.options.overwrite,
+                    progress=on_progress,
+                    stream_retries=self.options.retries,
+                )
             LOGGER.info("%s episode: %s", result.status.title(), result.episode.title)
             return JobReport(url=url, result=result)
         except AniCatError as error:
