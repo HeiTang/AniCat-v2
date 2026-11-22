@@ -30,7 +30,7 @@ anicat-gui = "anicat.gui:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-anicat = ["py.typed"]
+anicat = ["py.typed", "assets/*.png"]
 
 [tool.ruff]
 line-length = 100

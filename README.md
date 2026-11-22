@@ -63,17 +63,22 @@ anicat --help
 
 ### C. 桌面介面（開發版）
 
-完成本機安裝後可執行：
+在專案目錄切換到 `dev`，用 uv 安裝並啟動桌面介面。
 
 ```bash
-anicat-gui
+git switch dev
+uv sync --locked
+uv run anicat-gui
 ```
+
+若使用 pip 安裝開發版，可在同一個 Python 環境執行 `anicat-gui`。
 
 視窗提供網址佇列、儲存資料夾選擇與右側逐集狀態卡，並共用 CLI 的下載服務。
 狀態依實際工作更新：等待中、解析來源、下載中、檢查分段、合併影片、全片驗證，
 通過驗證後才顯示完成；已存在或失敗也會明確標示，不用計時猜測百分比。
 它需要 Python Tk 支援；若系統沒有 Tk，請改用 CLI。支援來源與 CLI 相同，
 開發版支援 `anime1.me`、`anime1.pw`、`anime1.cc` 與 `anime1.in`。
+GUI 預設存到 `~/Downloads/AniCat`。
 
 一般安裝會透過 `imageio-ffmpeg` 一起安裝影片處理工具 FFmpeg，不需要另外設定 PATH。
 桌面介面會在開始下載前檢查工具是否能正常執行；系統已有可用的 FFmpeg 時優先沿用，
@@ -284,6 +289,6 @@ for entry in matches:
 python3 -m http.server 8765 --bind 127.0.0.1 --directory website
 ```
 
-開啟 `http://127.0.0.1:8765`。網站安裝範例指向已發布的 v0.3.0；
-HLS 與 GUI 屬於另外的開發分支，不包含在網站 PR 或 v0.3.0 內。
+開啟 `http://127.0.0.1:8765`。網站安裝範例指向已發布的 v0.3.0，該版本尚未包含
+HLS 與桌面介面。這兩項功能目前可在 `dev` 分支使用。
 網站尚未公開部署，PyPI 預計使用套件名稱 `anicat`，正式發布前仍使用 GitHub 安裝。

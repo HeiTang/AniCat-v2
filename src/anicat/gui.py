@@ -207,6 +207,10 @@ def main() -> int:
     root.minsize(820, 660)
     root.configure(bg=COLORS["paper"])
 
+    assets = Path(__file__).with_name("assets")
+    logo = tk.PhotoImage(master=root, file=str(assets / "anicat-logo-mark.png")).subsample(8, 8)
+    mascot = tk.PhotoImage(master=root, file=str(assets / "anicat-mascot-mark.png")).subsample(4, 4)
+
     title_font = ("Helvetica Neue", 18, "bold")
     body_font = ("Helvetica Neue", 11)
     small_font = ("Helvetica Neue", 9)
@@ -230,10 +234,20 @@ def main() -> int:
     header.pack(fill="x", pady=(0, 14))
     brand_row = tk.Frame(header, bg=COLORS["paper"])
     brand_row.pack(side="left")
-    label(brand_row, "AniCat", font=("Helvetica Neue", 22, "bold")).pack(side="left")
-    label(brand_row, ".", font=("Helvetica Neue", 22, "bold"), fg=COLORS["accent"]).pack(
+    label(brand_row, "", image=logo).pack(side="left", padx=(0, 8))
+    brand_font = ("Helvetica Neue", 22, "bold")
+    label(brand_row, "AniCat", font=brand_font, padx=0, borderwidth=0, highlightthickness=0).pack(
         side="left"
     )
+    label(
+        brand_row,
+        ".",
+        font=brand_font,
+        fg=COLORS["accent"],
+        padx=0,
+        borderwidth=0,
+        highlightthickness=0,
+    ).pack(side="left")
     label(header, "LOCAL DOWNLOAD WORKSPACE  /  01", font=mono_font, fg=COLORS["muted"]).pack(
         side="right", pady=7
     )
@@ -246,7 +260,7 @@ def main() -> int:
     content.grid_rowconfigure(1, weight=1)
 
     intro = tk.Frame(content, bg=COLORS["paper"])
-    intro.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 14))
+    intro.grid(row=0, column=0, sticky="ew", pady=(0, 14))
     label(intro, "01  /  DOWNLOAD", font=mono_font, fg=COLORS["accent"]).pack(anchor="w")
     label(intro, "把想看的，留在本機。", font=("Helvetica Neue", 22, "bold")).pack(
         anchor="w", pady=(4, 3)
@@ -361,6 +375,9 @@ def main() -> int:
     summary = tk.StringVar(value="尚未開始")
     status_text = tk.StringVar(value="就緒")
 
+    label(content, "", image=mascot, borderwidth=0, highlightthickness=0, padx=0, pady=0).grid(
+        row=0, column=1, sticky="se", padx=(0, 22)
+    )
     queue_panel = tk.Frame(content, bg=COLORS["dark"], padx=22, pady=20)
     queue_panel.grid(row=1, column=1, sticky="nsew")
     queue_panel.grid_rowconfigure(3, weight=1)

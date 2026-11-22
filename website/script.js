@@ -3,7 +3,7 @@ document.querySelectorAll("[data-copy]").forEach((button) => {
     const text = document
       .getElementById(button.dataset.copy)
       .textContent.trim();
-    const status = document.getElementById("copy-status");
+    const status = button.closest(".command").querySelector(".copy-status");
     try {
       await navigator.clipboard.writeText(text);
       status.textContent = "已複製，貼到終端機即可。";
