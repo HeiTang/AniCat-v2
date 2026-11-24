@@ -42,6 +42,12 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Link source-built cryptography to static OpenSSL
+        if: runner.os == 'macOS'
+        run: |
+          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+          echo "OPENSSL_STATIC=1" >> "$GITHUB_ENV"
+
       - name: Install locked build dependencies
         run: uv sync --locked --no-dev --group desktop --python 3.12 --no-managed-python
 
