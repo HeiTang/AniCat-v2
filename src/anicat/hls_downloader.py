@@ -13,7 +13,7 @@ import requests
 
 from .downloader import ProgressCallback, target_path
 from .errors import DownloadError
-from .ffmpeg import find_ffmpeg
+from .ffmpeg import FFMPEG_CREATION_FLAGS, find_ffmpeg
 from .hls import validate_playlist_url
 from .hls_segments import (
     SegmentSpec,
@@ -225,7 +225,12 @@ def _run_ffmpeg(
 
     with tempfile.TemporaryFile() as diagnostics:
         try:
-            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=diagnostics)
+            result = subprocess.run(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=diagnostics,
+                creationflags=FFMPEG_CREATION_FLAGS,
+            )
         except OSError as error:
             raise DownloadError(f"could not start FFmpeg: {error}") from error
         detail, recoverable = _read_ffmpeg_diagnostics(diagnostics)
@@ -405,6 +410,7 @@ def _decode_timestamp_options(executable: str) -> tuple[str, ...]:
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             timeout=5,
+            creationflags=FFMPEG_CREATION_FLAGS,
         )
     except (OSError, subprocess.TimeoutExpired):
         version = None
@@ -442,6 +448,7 @@ def _validate_output(executable: str, path: Path, duration: float | None) -> Non
                 stdout=subprocess.DEVNULL,
                 stderr=diagnostics,
                 timeout=max(60, (duration or 1800) * 2),
+                creationflags=FFMPEG_CREATION_FLAGS,
             )
         except subprocess.TimeoutExpired as error:
             raise DownloadError("full video validation timed out") from error

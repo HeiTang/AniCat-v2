@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from multiprocessing import get_context
@@ -590,6 +591,14 @@ def main() -> int:
         root.after(1 if yielded else 100, poll)
 
     def show_tool_help() -> None:
+        if getattr(sys, "frozen", False):
+            messagebox.showinfo(
+                "影片處理工具 FFmpeg",
+                "桌面 App 已內附 FFmpeg。如果檢查失敗，請重新下載並完整解壓縮桌面 App。",
+                parent=root,
+            )
+            return
+
         import webbrowser
 
         dialog = tk.Toplevel(root)
