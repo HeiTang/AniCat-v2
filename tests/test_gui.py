@@ -363,7 +363,7 @@ class GuiWorkerTests(unittest.TestCase):
                 "item",
                 url=url,
                 state="skipped",
-                detail="/tmp/output/episode.mp4",
+                detail=str(result.path),
             ),
             values,
         )
