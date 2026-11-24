@@ -8,7 +8,7 @@ root = Path(SPECPATH).resolve().parents[1]
 imageio_path = Path(get_package_paths("imageio_ffmpeg")[1])
 ffmpeg, = (imageio_path / "binaries").glob("ffmpeg-*")
 windows = sys.platform == "win32"
-icon = root / "website" / ("favicon.ico" if windows else "assets/anicat-logo.png")
+icon = root / "website/assets/anicat-logo.png"
 
 analysis = Analysis(
     [str(Path(SPECPATH) / "launch.py")],

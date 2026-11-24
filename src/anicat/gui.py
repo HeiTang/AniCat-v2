@@ -193,9 +193,16 @@ def main() -> int:
     try:
         import tkinter as tk
         from tkinter import filedialog, messagebox
+        from tkinter import font as tkfont
     except ImportError:
         print("圖形介面需要 Python 的 Tk 支援。請安裝含 Tk 的 Python，或使用 anicat CLI。")
         return 1
+
+    if sys.platform == "win32":
+        import ctypes
+
+        # Keep the taskbar identity separate from the Python/Tk host.
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("io.github.heitang.anicat")
 
     try:
         root = tk.Tk()
@@ -209,13 +216,33 @@ def main() -> int:
     root.configure(bg=COLORS["paper"])
 
     assets = Path(__file__).with_name("assets")
-    logo = tk.PhotoImage(master=root, file=str(assets / "anicat-logo-mark.png")).subsample(8, 8)
+    app_icon = tk.PhotoImage(master=root, file=str(assets / "anicat-logo-mark.png"))
+    if sys.platform == "win32":
+        root.iconphoto(True, app_icon)
+    logo = app_icon.subsample(8, 8)
     mascot = tk.PhotoImage(master=root, file=str(assets / "anicat-mascot-mark.png")).subsample(4, 4)
 
-    title_font = ("Helvetica Neue", 18, "bold")
-    body_font = ("Helvetica Neue", 11)
-    small_font = ("Helvetica Neue", 9)
-    mono_font = ("Menlo", 9)
+    body_family, mono_family = "Helvetica Neue", "Menlo"
+    if sys.platform == "win32":
+        families = set(tkfont.families(root))
+        body_family = next(
+            (
+                name
+                for name in ("Microsoft JhengHei UI", "Microsoft JhengHei", "Segoe UI")
+                if name in families
+            ),
+            tkfont.nametofont("TkDefaultFont", root).actual("family"),
+        )
+        mono_family = (
+            "Consolas"
+            if "Consolas" in families
+            else tkfont.nametofont("TkFixedFont", root).actual("family")
+        )
+
+    title_font = (body_family, 18, "bold")
+    body_font = (body_family, 11)
+    small_font = (body_family, 9)
+    mono_font = (mono_family, 9)
 
     def label(parent: tk.Misc, text: str, *, font=body_font, fg=COLORS["ink"], **kwargs):
         return tk.Label(parent, text=text, font=font, fg=fg, bg=parent.cget("bg"), **kwargs)
@@ -236,7 +263,7 @@ def main() -> int:
     brand_row = tk.Frame(header, bg=COLORS["paper"])
     brand_row.pack(side="left")
     label(brand_row, "", image=logo).pack(side="left", padx=(0, 8))
-    brand_font = ("Helvetica Neue", 22, "bold")
+    brand_font = (body_family, 22, "bold")
     label(brand_row, "AniCat", font=brand_font, padx=0, borderwidth=0, highlightthickness=0).pack(
         side="left"
     )
@@ -263,7 +290,7 @@ def main() -> int:
     intro = tk.Frame(content, bg=COLORS["paper"])
     intro.grid(row=0, column=0, sticky="ew", pady=(0, 14))
     label(intro, "01  /  DOWNLOAD", font=mono_font, fg=COLORS["accent"]).pack(anchor="w")
-    label(intro, "把想看的，留在本機。", font=("Helvetica Neue", 22, "bold")).pack(
+    label(intro, "把想看的，留在本機。", font=(body_family, 22, "bold")).pack(
         anchor="w", pady=(4, 3)
     )
     label(
@@ -347,7 +374,7 @@ def main() -> int:
         output_row,
         text="選擇資料夾",
         command=choose,
-        font=("Helvetica Neue", 10, "bold"),
+        font=(body_family, 10, "bold"),
         bg=COLORS["surface"],
         fg=COLORS["ink"],
         activebackground="#E9E5DB",
@@ -458,7 +485,7 @@ def main() -> int:
     tk.Label(
         bottom,
         textvariable=status_text,
-        font=("Helvetica Neue", 10, "bold"),
+        font=(body_family, 10, "bold"),
         fg="#F5F2EA",
         bg=COLORS["dark"],
         anchor="w",
@@ -475,7 +502,7 @@ def main() -> int:
         row = tk.Frame(queue_inner, bg="#2B3B31", padx=12, pady=10)
         row.pack(fill="x", pady=(0, 8))
         # Reserve four CJK characters so stage changes do not reflow the row.
-        badge = tk.Label(row, text="等待中", font=("Menlo", 8, "bold"), width=8, padx=7, pady=4)
+        badge = tk.Label(row, text="等待中", font=(body_family, 8, "bold"), width=8, padx=7, pady=4)
         badge.pack(side="left", anchor="n")
         set_badge(badge, "queued")
         middle = tk.Frame(row, bg="#2B3B31")
@@ -665,7 +692,7 @@ def main() -> int:
     tool_help = label(
         tool_info,
         "工具安裝說明",
-        font=("Helvetica Neue", 9, "underline"),
+        font=(body_family, 9, "underline"),
         fg=COLORS["accent"],
         cursor="hand2",
         takefocus=True,
@@ -680,7 +707,7 @@ def main() -> int:
     start_button = tk.Label(
         actions,
         text="開始下載",
-        font=("Helvetica Neue", 11, "bold"),
+        font=(body_family, 11, "bold"),
         bg=COLORS["accent"],
         fg="#FFFFFF",
         relief="flat",
