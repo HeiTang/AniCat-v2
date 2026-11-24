@@ -293,7 +293,7 @@ STAGE_DETAIL: dict[DownloadStage, str] = {
 }
 
 
-def main() -> int:
+def main(*, smoke_test: bool = False) -> int:
     """Open the AniCat desktop workspace."""
 
     try:
@@ -895,8 +895,37 @@ def main() -> int:
 
     root.protocol("WM_DELETE_WINDOW", close)
     root.after(100, poll)
+    smoke_errors: list[BaseException] = []
+    if smoke_test:
+
+        def smoke_failed(_kind, error, _traceback) -> None:
+            smoke_errors.append(error)
+            root.destroy()
+
+        def check_ui() -> None:
+            handle(GuiEvent("queue", total=12))
+            for index in range(12):
+                handle(GuiEvent("item", url=f"https://anime1.me/{index}", state="queued"))
+            root.update_idletasks()
+            # A wheel event over a row must reach the queue's top-level binding.
+            item_rows["https://anime1.me/0"][2].event_generate("<MouseWheel>", delta=-120)
+            assert queue_canvas.yview()[0] > 0, "queue wheel did not scroll"
+            handle(GuiEvent("item", url="https://anime1.me/0", state="error", detail="test"))
+            handle(GuiEvent("item", url="https://anime1.me/1", state="downloading"))
+            cancel.set()
+            handle(None)
+            assert item_rows["https://anime1.me/0"][1].cget("text") == "失敗"
+            assert item_rows["https://anime1.me/1"][1].cget("text") == "已停止"
+            destroyed = []
+            root.bind("<Destroy>", lambda event: destroyed.append(event.widget == root))
+            state["closing"] = True
+            handle(None)
+            assert any(destroyed), "earlier download error prevented close"
+
+        root.report_callback_exception = smoke_failed
+        root.after(250, check_ui)
     root.mainloop()
-    return 0
+    return 1 if smoke_errors else 0
 
 
 if __name__ == "__main__":

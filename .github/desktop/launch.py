@@ -5,14 +5,14 @@ import sys
 from multiprocessing import freeze_support
 from pathlib import Path
 from queue import Queue
-from tkinter import Tcl
 
 from anicat.gui import GuiEvent, main, run_download_isolated
 
 
 def smoke_test() -> int:
-    """Check Tcl and the frozen worker's bundled FFmpeg without opening a window."""
-    Tcl().call("info", "patchlevel")
+    """Build the real GUI and check the frozen worker's bundled FFmpeg."""
+    if main(smoke_test=True) != 0:
+        return 1
     os.environ["PATH"] = ""
     os.environ.pop("IMAGEIO_FFMPEG_EXE", None)
 

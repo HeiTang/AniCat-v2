@@ -7,12 +7,14 @@ on:
       - ".github/workflows/desktop.yml"
       - ".github/desktop/**"
       - "src/anicat/**"
+      - "tests/test_gui.py"
       - "website/assets/anicat-logo.png"
       - "website/favicon.ico"
       - "LICENSE"
       - "pyproject.toml"
       - "uv.lock"
   push:
+    branches: ["dev"]
     tags: ["v*"]
 
 permissions:
@@ -51,6 +53,9 @@ jobs:
       - name: Install locked build dependencies
         run: uv sync --locked --no-dev --group desktop --python 3.12 --no-managed-python
 
+      - name: Test desktop worker lifecycle
+        run: uv run --no-sync python -m unittest tests.test_gui
+
       - name: Build desktop app
         run: uv run --no-sync pyinstaller --noconfirm .github/desktop/AniCat.spec
 
@@ -72,16 +77,20 @@ jobs:
       - name: Verify and zip macOS app
         if: runner.os == 'macOS'
         run: |
-          dist/AniCat.app/Contents/MacOS/AniCat --smoke-test
           ditto -c -k --keepParent dist/AniCat.app "dist/$ARCHIVE"
+          mkdir -p "${{ runner.temp }}/AniCat acceptance"
+          ditto -x -k "dist/$ARCHIVE" "${{ runner.temp }}/AniCat acceptance"
+          "${{ runner.temp }}/AniCat acceptance/AniCat.app/Contents/MacOS/AniCat" --smoke-test
 
       - name: Verify and zip Windows app
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $process = Start-Process -FilePath "dist/AniCat/AniCat.exe" -ArgumentList "--smoke-test" -Wait -PassThru
-          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
           Compress-Archive -Path "dist/AniCat" -DestinationPath "dist/$env:ARCHIVE"
+          $acceptance = Join-Path $env:RUNNER_TEMP "AniCat acceptance"
+          Expand-Archive -Path "dist/$env:ARCHIVE" -DestinationPath $acceptance
+          $process = Start-Process -FilePath "$acceptance/AniCat/AniCat.exe" -ArgumentList "--smoke-test" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
 
       - name: Upload desktop archive
         uses: actions/upload-artifact@v7
