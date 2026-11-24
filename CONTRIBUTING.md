@@ -40,9 +40,15 @@ AniCat-v2 是一個 CLI 下載工具，不是一次性的腳本集合。任何�
 - 安裝：
 
    ```bash
+   git clone https://github.com/HeiTang/AniCat-v2.git
+   cd AniCat-v2
    uv sync --locked
    uv run pre-commit install
    ```
+
+- 啟動：執行 `uv run anicat --help` 檢查命令列入口。使用含 Tk 的 Python 時，也可用 `uv run anicat-gui` 啟動桌面介面。
+
+- 預覽官網：在專案根目錄執行 `python3 -m http.server 8765 --bind 127.0.0.1 --directory website`，開啟 `http://127.0.0.1:8765`。
 
 - 常用檢查：
 
@@ -80,6 +86,8 @@ AniCat-v2 是一個 CLI 下載工具，不是一次性的腳本集合。任何�
 | direct MP4 | 可沿用目前 downloader |
 | API 回傳 MP4 | 新增 provider-specific extractor |
 | HLS / m3u8 | 需要新的 HLS backend，不要塞進 MP4 downloader |
+
+現有 HLS 的分段與格式限制見 [hls_segments.py](src/anicat/hls_segments.py)，輸出驗證見 [hls_downloader.py](src/anicat/hls_downloader.py)。
 
 新增 Provider 時至少要補：
 
