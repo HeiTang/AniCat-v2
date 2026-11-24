@@ -1,6 +1,7 @@
 """Download HLS with FFmpeg while keeping completed files intact on failure."""
 
 import logging
+import os
 import re
 import subprocess
 import tempfile
@@ -508,7 +509,7 @@ def download_hls_episode(
     if progress:
         progress(DownloadProgressEvent(episode, "started", 0, 0))
     # HLS cannot reuse the direct downloader's byte-range .part files.
-    with tempfile.TemporaryDirectory(prefix=".anicat-hls-", dir=output_dir) as work:
+    with tempfile.TemporaryDirectory(prefix=f".anicat-hls-{os.getpid()}-", dir=output_dir) as work:
         temporary = Path(work) / "video.mp4"
         input_playlist = playlist
         group_playlists: tuple[tuple[Path, float], ...] = ()

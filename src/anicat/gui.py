@@ -2,30 +2,35 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import signal
+import subprocess
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from multiprocessing import get_context
+from multiprocessing.process import BaseProcess
 from pathlib import Path
 from queue import Empty, Queue
-from threading import Thread
+from threading import Event, Thread
 from time import monotonic
 from typing import Literal, Protocol
 
-from .ffmpeg import find_ffmpeg
+from .ffmpeg import FFMPEG_CREATION_FLAGS, find_ffmpeg
 from .models import DownloadStage, JobReport
 from .options import DownloadOptions
 from .service import AniCatService
 from .urls import split_urls
 
-GuiItemState = DownloadStage | Literal["queued", "done", "skipped", "error"]
+GuiItemState = DownloadStage | Literal["queued", "done", "skipped", "error", "cancelled"]
 
 
 @dataclass(frozen=True)
 class GuiEvent:
     """Thread-to-UI message; no guessed progress is sent."""
 
-    kind: Literal["status", "queue", "item", "tool"]
+    kind: Literal["status", "queue", "item", "tool", "stop_error"]
     text: str = ""
     url: str = ""
     state: GuiItemState | None = None
@@ -56,6 +61,55 @@ def process_gui_events(
         if monotonic() >= deadline:
             return True
     return True
+
+
+def _download_worker(
+    urls: list[str],
+    output: Path,
+    events: GuiEventSink,
+    download: Callable[[list[str], Path, GuiEventSink], None],
+) -> None:
+    if sys.platform != "win32":
+        os.setsid()
+    download(urls, output, events)
+
+
+def stop_download_worker(process: BaseProcess) -> None:
+    """Stop only this worker and its FFmpeg descendants, then reap the worker."""
+    if process.pid is None:
+        return
+    if sys.platform == "win32":
+        result = subprocess.run(
+            [
+                str(Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/taskkill.exe"),
+                "/PID",
+                str(process.pid),
+                "/T",
+                "/F",
+            ],
+            capture_output=True,
+            timeout=10,
+            creationflags=FFMPEG_CREATION_FLAGS,
+        )
+        if result.returncode and process.is_alive():
+            raise RuntimeError("無法停止下載工作，請重試。")
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            if process.is_alive():
+                process.terminate()
+    process.join(timeout=2)
+    if sys.platform != "win32":
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    if process.is_alive():
+        process.kill()
+    process.join(timeout=2)
+    if process.is_alive():
+        raise RuntimeError("下載工作仍在執行，請再次停止。")
 
 
 def run_download(urls: list[str], output: Path, events: GuiEventSink) -> None:
@@ -100,19 +154,70 @@ def run_download(urls: list[str], output: Path, events: GuiEventSink) -> None:
         events.put(None)
 
 
-def run_download_isolated(urls: list[str], output: Path, events: GuiEventSink) -> None:
+def run_download_isolated(
+    urls: list[str], output: Path, events: GuiEventSink, cancel: Event | None = None
+) -> None:
     """Relay a spawned worker's events without sharing its GIL with Tk."""
 
     channel = None
     process = None
     needs_join = False
+    cancel = cancel if cancel is not None else Event()
+
+    def stop_worker() -> bool:
+        nonlocal needs_join
+        assert process is not None and channel is not None
+        while True:
+            try:
+                stop_download_worker(process)
+                return True
+            except Exception as error:
+                cancel.clear()
+                events.put(GuiEvent("stop_error", detail=str(error)))
+                # Keep relaying so the worker can flush its Queue and exit naturally.
+                while not cancel.is_set():
+                    try:
+                        event = channel.get(timeout=0.1)
+                    except Empty:
+                        if process.is_alive():
+                            continue
+                        process.join()
+                        needs_join = False
+                        raise RuntimeError(
+                            f"下載工作程序意外結束（退出碼 {process.exitcode}），請重試。"
+                        ) from None
+                    if event is None:
+                        process.join()
+                        needs_join = False
+                        if process.exitcode != 0:
+                            raise RuntimeError(
+                                f"下載工作程序異常退出（退出碼 {process.exitcode}），請重試。"
+                            ) from None
+                        cancel.clear()
+                        return False
+                    events.put(event)
+
     try:
         context = get_context("spawn")
         channel = context.Queue()
-        process = context.Process(target=run_download, args=(urls, output, channel), daemon=True)
+        process = context.Process(
+            target=_download_worker, args=(urls, output, channel, run_download), daemon=True
+        )
         process.start()
         needs_join = True
         while True:
+            if cancel.is_set():
+                stopped = stop_worker()
+                needs_join = False
+                if not stopped:
+                    break
+                cancel.set()
+                # HLS intermediates belong to this worker; direct MP4 .part files stay resumable.
+                for temporary in output.glob(f".anicat-hls-{process.pid}-*"):
+                    if temporary.is_dir() and not temporary.is_symlink():
+                        shutil.rmtree(temporary)
+                events.put(GuiEvent("status", text="已停止下載"))
+                break
             try:
                 event = channel.get(timeout=0.1)
             except Empty:
@@ -136,7 +241,7 @@ def run_download_isolated(urls: list[str], output: Path, events: GuiEventSink) -
         try:
             if process is not None:
                 if needs_join:
-                    process.join()
+                    stop_worker()
                 process.close()
             if channel is not None:
                 channel.close()
@@ -175,6 +280,7 @@ STATUS_COPY: dict[GuiItemState, tuple[str, str, str]] = {
     "done": ("完成", COLORS["done_bg"], COLORS["done_fg"]),
     "skipped": ("已存在", COLORS["skipped_bg"], COLORS["skipped_fg"]),
     "error": ("失敗", COLORS["error_bg"], COLORS["error_fg"]),
+    "cancelled": ("已停止", COLORS["skipped_bg"], COLORS["skipped_fg"]),
 }
 
 
@@ -395,7 +501,8 @@ def main() -> int:
         justify="left",
     ).grid(row=2, column=0, sticky="w", padx=20, pady=(9, 18))
 
-    state = {"busy": False, "error": False}
+    state = {"busy": False, "error": False, "closing": False}
+    cancel = Event()
     events: Queue[GuiEvent | None] = Queue()
     item_rows: dict[str, tuple[tk.Frame, tk.Label, tk.Label, tk.Label]] = {}
     total = tk.IntVar(value=0)
@@ -461,9 +568,21 @@ def main() -> int:
         queue_canvas.yview_scroll(direction, "units")
         return "break"
 
-    queue_canvas.bind("<MouseWheel>", scroll_queue)
-    queue_canvas.bind("<Button-4>", lambda _event: queue_canvas.yview_scroll(-1, "units"))
-    queue_canvas.bind("<Button-5>", lambda _event: queue_canvas.yview_scroll(1, "units"))
+    def queue_wheel(event):
+        widget = event.widget
+        while widget is not None:
+            if widget == queue_canvas:
+                if event.num in (4, 5):
+                    queue_canvas.yview_scroll(-1 if event.num == 4 else 1, "units")
+                    return "break"
+                return scroll_queue(event)
+            widget = getattr(widget, "master", None)
+        return None
+
+    root.bind("<MouseWheel>", queue_wheel)
+    if sys.platform not in ("win32", "darwin"):
+        root.bind("<Button-4>", queue_wheel)
+        root.bind("<Button-5>", queue_wheel)
 
     def resize_queue(event) -> None:
         queue_canvas.itemconfigure(queue_window, width=event.width)
@@ -547,8 +666,29 @@ def main() -> int:
         if event is None:
             state["busy"] = False
             start_button.configure(text="開始下載")
+            stop_button.configure(state="disabled")
+            if cancel.is_set():
+                for _row, badge, _title, detail in item_rows.values():
+                    if badge.cget("text") not in ("完成", "已存在", "失敗"):
+                        set_badge(badge, "cancelled")
+                        detail.configure(text="已停止；重新開始即可重試。")
             style_start()
-            status_text.set("這批工作已結束" if not state["error"] else "有工作需要處理")
+            if state["closing"]:
+                root.destroy()
+                return
+            state["closing"] = False
+            status_text.set(
+                "有工作需要處理"
+                if state["error"]
+                else "已停止下載"
+                if cancel.is_set()
+                else "這批工作已結束"
+            )
+        elif event.kind == "stop_error":
+            state["closing"] = False
+            stop_button.configure(state="normal")
+            status_text.set("停止失敗，請再次按「停止下載」")
+            messagebox.showerror("無法停止下載", event.detail, parent=root)
         elif event.kind == "tool":
             if event.text == "missing":
                 state["error"] = True
@@ -594,6 +734,8 @@ def main() -> int:
             entry.focus_set()
             return
         clear_queue()
+        cancel.clear()
+        stop_button.configure(state="normal")
         state["busy"] = True
         state["error"] = False
         start_button.configure(text="下載中…")
@@ -601,7 +743,7 @@ def main() -> int:
         status_text.set("正在連線與解析…")
         Thread(
             target=run_download_isolated,
-            args=(values, Path(output.get()).expanduser(), events),
+            args=(values, Path(output.get()).expanduser(), events, cancel),
             daemon=True,
         ).start()
 
@@ -719,6 +861,22 @@ def main() -> int:
         highlightbackground=COLORS["accent"],
         highlightcolor=COLORS["ink"],
     )
+
+    def stop() -> None:
+        if state["busy"]:
+            cancel.set()
+            stop_button.configure(state="disabled")
+            status_text.set("正在停止下載…")
+
+    stop_button = tk.Button(
+        actions,
+        text="停止下載",
+        command=stop,
+        state="disabled",
+        font=body_font,
+        takefocus=True,
+    )
+    stop_button.grid(row=1, column=1, sticky="e", pady=(8, 0))
     start_button.grid(row=0, column=1, sticky="e")
     start_button.bind("<Button-1>", lambda _event: start())
     start_button.bind("<Return>", lambda _event: start())
@@ -729,7 +887,9 @@ def main() -> int:
 
     def close() -> None:
         if state["busy"]:
-            messagebox.showinfo("下載進行中", "請等待這批工作結束後再關閉視窗。", parent=root)
+            if messagebox.askyesno("下載進行中", "停止下載並關閉 AniCat？", parent=root):
+                state["closing"] = True
+                stop()
         else:
             root.destroy()
 
