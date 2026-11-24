@@ -105,6 +105,10 @@ def stop_download_worker(process: BaseProcess) -> None:
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
+        except PermissionError:
+            # macOS may reject signalling a group whose remaining members have exited.
+            if process.is_alive():
+                raise
     if process.is_alive():
         process.kill()
     process.join(timeout=2)

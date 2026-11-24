@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from queue import Queue
 from threading import Event, Timer
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from anicat.gui import (
     GuiEvent,
@@ -65,6 +65,24 @@ def _worker_burst(urls, output, events):
 
 
 class GuiProcessTests(unittest.TestCase):
+    @unittest.skipIf(sys.platform == "win32", "POSIX process groups only")
+    @patch("anicat.gui.os.killpg", side_effect=[None, PermissionError("group has exited")])
+    def test_exited_worker_does_not_report_group_cleanup_permission_error(self, killpg):
+        process = Mock(pid=1234)
+        process.is_alive.return_value = False
+        stop_download_worker(process)
+        self.assertEqual(killpg.call_count, 2)
+        process.kill.assert_not_called()
+
+    @unittest.skipIf(sys.platform == "win32", "POSIX process groups only")
+    @patch("anicat.gui.os.killpg", side_effect=[None, PermissionError("group still alive")])
+    def test_live_worker_still_reports_group_cleanup_permission_error(self, killpg):
+        process = Mock(pid=1234)
+        process.is_alive.return_value = True
+        with self.assertRaises(PermissionError):
+            stop_download_worker(process)
+        self.assertEqual(killpg.call_count, 2)
+
     @patch("anicat.gui.run_download", _worker_burst)
     def test_failed_stop_drains_large_queue_and_accepts_natural_completion(self):
         self.check_failed_stop_natural_exit([])
