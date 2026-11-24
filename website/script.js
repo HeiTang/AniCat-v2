@@ -1,8 +1,6 @@
-document.querySelectorAll("[data-copy]").forEach((button) => {
+document.querySelectorAll(".copy-button").forEach((button) => {
   button.addEventListener("click", async () => {
-    const text = document
-      .getElementById(button.dataset.copy)
-      .textContent.trim();
+    const text = button.closest("pre").querySelector("code").textContent.trim();
     const status = button.closest(".command").querySelector(".copy-status");
     try {
       await navigator.clipboard.writeText(text);
