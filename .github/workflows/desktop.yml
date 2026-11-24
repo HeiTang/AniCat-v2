@@ -1,0 +1,100 @@
+name: Desktop App
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/desktop.yml"
+      - ".github/desktop/**"
+      - "src/anicat/**"
+      - "tests/test_gui.py"
+      - "website/assets/anicat-logo.png"
+      - "website/favicon.ico"
+      - "LICENSE"
+      - "pyproject.toml"
+      - "uv.lock"
+  push:
+    branches: ["dev"]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            platform: macos-arm64
+          - runner: macos-15-intel
+            platform: macos-x64
+          - runner: windows-2025
+            platform: windows-x64
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Link source-built cryptography to static OpenSSL
+        if: runner.os == 'macOS'
+        run: |
+          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+          echo "OPENSSL_STATIC=1" >> "$GITHUB_ENV"
+
+      - name: Install locked build dependencies
+        run: uv sync --locked --no-dev --group desktop --python 3.12 --no-managed-python
+
+      - name: Test desktop worker lifecycle
+        run: uv run --no-sync python -m unittest tests.test_gui
+
+      - name: Build desktop app
+        run: uv run --no-sync pyinstaller --noconfirm .github/desktop/AniCat.spec
+
+      - name: Check tag version and set archive name
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          version=$(uv run --no-sync python -c 'from anicat import __version__; print(__version__)')
+          if [[ "$version" =~ ^([0-9]+\.[0-9]+\.[0-9]+)rc([0-9]+)$ ]]; then
+            version="${BASH_REMATCH[1]}-rc.${BASH_REMATCH[2]}"
+          fi
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match v$version" >&2
+            exit 1
+          fi
+          echo "ARCHIVE=AniCat-v$version-$PLATFORM.zip" >> "$GITHUB_ENV"
+
+      - name: Verify and zip macOS app
+        if: runner.os == 'macOS'
+        run: |
+          ditto -c -k --keepParent dist/AniCat.app "dist/$ARCHIVE"
+          mkdir -p "${{ runner.temp }}/AniCat acceptance"
+          ditto -x -k "dist/$ARCHIVE" "${{ runner.temp }}/AniCat acceptance"
+          "${{ runner.temp }}/AniCat acceptance/AniCat.app/Contents/MacOS/AniCat" --smoke-test
+
+      - name: Verify and zip Windows app
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist/AniCat" -DestinationPath "dist/$env:ARCHIVE"
+          $acceptance = Join-Path $env:RUNNER_TEMP "AniCat acceptance"
+          Expand-Archive -Path "dist/$env:ARCHIVE" -DestinationPath $acceptance
+          $process = Start-Process -FilePath "$acceptance/AniCat/AniCat.exe" -ArgumentList "--smoke-test" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+
+      - name: Upload desktop archive
+        uses: actions/upload-artifact@v7
+        with:
+          path: dist/${{ env.ARCHIVE }}
+          archive: false
+          if-no-files-found: error

@@ -1,10 +1,21 @@
 import os
+import subprocess
+import sys
+import tempfile
+import time
 import unittest
 from pathlib import Path
 from queue import Queue
-from unittest.mock import patch
+from threading import Event, Timer
+from unittest.mock import Mock, patch
 
-from anicat.gui import GuiEvent, process_gui_events, run_download, run_download_isolated
+from anicat.gui import (
+    GuiEvent,
+    process_gui_events,
+    run_download,
+    run_download_isolated,
+    stop_download_worker,
+)
 from anicat.models import DownloadResult, Episode, JobReport
 
 
@@ -25,7 +36,187 @@ def _worker_crashes(urls, output, events):
     os._exit(7)
 
 
+def _worker_waits(urls, output, events):
+    (output / "video.mp4.part").write_bytes(b"partial")
+    work = output / f".anicat-hls-{os.getpid()}-test"
+    work.mkdir()
+    (work / "segment.ts").write_bytes(b"segment")
+    subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import time; from pathlib import Path; time.sleep(1); "
+            f"Path({str(output / 'orphan.txt')!r}).write_text('still running')",
+        ]
+    )
+    events.put(GuiEvent("status", text="worker ready"))
+    time.sleep(30)
+
+
+def _worker_burst(urls, output, events):
+    events.put(GuiEvent("status", text="worker ready"))
+    for index in range(1000):
+        events.put(GuiEvent("item", url=str(index), state="done", detail="x" * 500))
+    events.put(None)
+    if urls == ["crash"]:
+        events.close()
+        events.join_thread()
+        os._exit(7)
+
+
 class GuiProcessTests(unittest.TestCase):
+    @unittest.skipIf(sys.platform == "win32", "POSIX process groups only")
+    @patch("anicat.gui.os.killpg", side_effect=[None, PermissionError("group has exited")])
+    def test_exited_worker_does_not_report_group_cleanup_permission_error(self, killpg):
+        process = Mock(pid=1234)
+        process.is_alive.return_value = False
+        stop_download_worker(process)
+        self.assertEqual(killpg.call_count, 2)
+        process.kill.assert_not_called()
+
+    @unittest.skipIf(sys.platform == "win32", "POSIX process groups only")
+    @patch("anicat.gui.os.killpg", side_effect=[None, PermissionError("group still alive")])
+    def test_live_worker_still_reports_group_cleanup_permission_error(self, killpg):
+        process = Mock(pid=1234)
+        process.is_alive.return_value = True
+        with self.assertRaises(PermissionError):
+            stop_download_worker(process)
+        self.assertEqual(killpg.call_count, 2)
+
+    @patch("anicat.gui.run_download", _worker_burst)
+    def test_failed_stop_drains_large_queue_and_accepts_natural_completion(self):
+        self.check_failed_stop_natural_exit([])
+
+    @patch("anicat.gui.run_download", _worker_burst)
+    def test_failed_stop_still_reports_abnormal_exit_after_completion_signal(self):
+        self.check_failed_stop_natural_exit(["crash"])
+
+    def check_failed_stop_natural_exit(self, urls):
+        cancel = Event()
+        events: Queue[GuiEvent | None] = Queue()
+
+        class Sink:
+            def put(self, item: GuiEvent | None) -> None:
+                events.put(item)
+                if item is not None and item.text == "worker ready":
+                    cancel.set()
+
+        attempts = []
+
+        def fail_first_stop(process):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise OSError("taskkill failed")
+            stop_download_worker(process)
+
+        # A broken queue-draining path must fail the test instead of hanging CI.
+        watchdog = Timer(10, cancel.set)
+        watchdog.start()
+        try:
+            with (
+                tempfile.TemporaryDirectory() as directory,
+                patch("anicat.gui.stop_download_worker", side_effect=fail_first_stop),
+            ):
+                run_download_isolated(urls, Path(directory), Sink(), cancel)
+        finally:
+            watchdog.cancel()
+            watchdog.join()
+        values = drain(events)
+        self.assertEqual(
+            [event.url for event in values if event is not None and event.kind == "item"],
+            [str(index) for index in range(1000)],
+        )
+        self.assertEqual(values.count(None), 1)
+        self.assertIsNone(values[-1])
+        self.assertFalse(cancel.is_set(), "natural completion was misreported as cancelled")
+        self.assertNotIn(GuiEvent("status", text="已停止下載"), values)
+        if urls:
+            self.assertTrue(any(event and "退出碼 7" in event.detail for event in values))
+        else:
+            self.assertEqual(len(attempts), 1, "needed another stop after work had finished")
+            self.assertFalse(
+                any(event and event.kind == "status" and event.detail for event in values)
+            )
+
+    @patch("anicat.gui.stop_download_worker")
+    @patch("anicat.gui.get_context")
+    def test_failed_stop_keeps_control_until_retry_succeeds(self, context_factory, stop):
+        process = context_factory.return_value.Process.return_value
+        process.is_alive.return_value = True
+        cancel = Event()
+        cancel.set()
+        events: Queue[GuiEvent | None] = Queue()
+        stop_succeeded = False
+
+        def try_stop(_process):
+            nonlocal stop_succeeded
+            if stop.call_count == 1:
+                raise OSError("taskkill failed")
+            stop_succeeded = True
+            process.is_alive.return_value = False
+
+        stop.side_effect = try_stop
+
+        test = self
+
+        class Sink:
+            def put(self, item: GuiEvent | None) -> None:
+                if item is None:
+                    test.assertTrue(stop_succeeded, "released UI while worker was alive")
+                events.put(item)
+                if item is not None and item.kind == "stop_error":
+                    test.assertTrue(process.is_alive())
+                    test.assertFalse(cancel.is_set())
+                    process.close.assert_not_called()
+                    cancel.set()  # User retries the stop button.
+
+        with tempfile.TemporaryDirectory() as directory:
+            run_download_isolated([], Path(directory), Sink(), cancel)
+        values = drain(events)
+        self.assertEqual(stop.call_count, 2)
+        self.assertEqual(values[0], GuiEvent("stop_error", detail="taskkill failed"))
+        self.assertIn(GuiEvent("status", text="已停止下載"), values)
+        self.assertEqual(values.count(None), 1)
+        self.assertIsNone(values[-1])
+        process.close.assert_called_once()
+
+    @patch("anicat.gui.run_download", _worker_waits)
+    def test_cancel_stops_worker_and_descendants_preserving_other_files(self):
+        cancel = Event()
+        events: Queue[GuiEvent | None] = Queue()
+
+        class Sink:
+            def put(self, item: GuiEvent | None) -> None:
+                events.put(item)
+                if item is not None and item.text == "worker ready":
+                    cancel.set()
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            completed = output / "completed.mp4"
+            completed.write_bytes(b"completed")
+            unrelated = output / ".anicat-hls-other-worker"
+            unrelated.mkdir()
+            run_download_isolated([], output, Sink(), cancel)
+            values = drain(events)
+            self.assertIn(GuiEvent("status", text="已停止下載"), values)
+            self.assertEqual(values.count(None), 1)
+            self.assertIsNone(values[-1])
+            self.assertEqual(completed.read_bytes(), b"completed")
+            self.assertEqual((output / "video.mp4.part").read_bytes(), b"partial")
+            self.assertEqual(list(output.glob(".anicat-hls-*")), [unrelated])
+            time.sleep(1.2)
+            self.assertFalse((output / "orphan.txt").exists())
+            cancel.clear()
+            with patch("anicat.gui.run_download", _worker_reports):
+                run_download_isolated(["https://anime1.me/1"], output, events, cancel)
+            restarted = drain(events)
+            first, second = restarted[:2]
+            assert first is not None and second is not None
+            self.assertEqual(first.state, "validating")
+            self.assertEqual(second.state, "done")
+            self.assertIsNone(restarted[-1])
+
     @patch("anicat.gui.run_download", _worker_reports)
     def test_spawned_worker_preserves_stage_and_completion_order(self):
         events: Queue[GuiEvent | None] = Queue()
@@ -190,7 +381,7 @@ class GuiWorkerTests(unittest.TestCase):
                 "item",
                 url=url,
                 state="skipped",
-                detail="/tmp/output/episode.mp4",
+                detail=str(result.path),
             ),
             values,
         )
