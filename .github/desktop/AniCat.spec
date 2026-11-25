@@ -8,7 +8,7 @@ root = Path(SPECPATH).resolve().parents[1]
 imageio_path = Path(get_package_paths("imageio_ffmpeg")[1])
 ffmpeg, = (imageio_path / "binaries").glob("ffmpeg-*")
 windows = sys.platform == "win32"
-icon = root / "website/assets/anicat-logo.png"
+icon = root / "website/assets/anicat-logo.png" if windows else Path(SPECPATH) / "macos-icon.png"
 
 analysis = Analysis(
     [str(Path(SPECPATH) / "launch.py")],
@@ -28,6 +28,7 @@ executable = EXE(
     name="AniCat",
     console=False,
     icon=str(icon) if windows else None,
+    manifest=str(Path(SPECPATH) / "windows.manifest") if windows else None,
     upx=False,
 )
 app = COLLECT(executable, analysis.binaries, analysis.datas, name="AniCat", upx=False)

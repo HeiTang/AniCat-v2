@@ -11,8 +11,10 @@ from anicat.gui import GuiEvent, main, run_download_isolated
 
 def smoke_test() -> int:
     """Build the real GUI and check the frozen worker's bundled FFmpeg."""
-    if main(smoke_test=True) != 0:
-        return 1
+    dpi_values = (None, 96, 120, 144, 192) if sys.platform == "win32" else (None,)
+    for dpi in dpi_values:
+        if main(smoke_test=True, _smoke_dpi=dpi) != 0:
+            return 1
     os.environ["PATH"] = ""
     os.environ.pop("IMAGEIO_FFMPEG_EXE", None)
 
