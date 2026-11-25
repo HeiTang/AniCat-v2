@@ -28,6 +28,7 @@ executable = EXE(
     name="AniCat",
     console=False,
     icon=str(icon) if windows else None,
+    manifest=str(Path(SPECPATH) / "windows.manifest") if windows else None,
     upx=False,
 )
 app = COLLECT(executable, analysis.binaries, analysis.datas, name="AniCat", upx=False)

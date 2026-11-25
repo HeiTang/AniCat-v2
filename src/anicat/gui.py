@@ -9,6 +9,7 @@ import subprocess
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
+from fractions import Fraction
 from multiprocessing import get_context
 from multiprocessing.process import BaseProcess
 from pathlib import Path
@@ -297,7 +298,7 @@ STAGE_DETAIL: dict[DownloadStage, str] = {
 }
 
 
-def main(*, smoke_test: bool = False) -> int:
+def main(*, smoke_test: bool = False, _smoke_dpi: int | None = None) -> int:
     """Open the AniCat desktop workspace."""
 
     try:
@@ -311,6 +312,8 @@ def main(*, smoke_test: bool = False) -> int:
     if sys.platform == "win32":
         import ctypes
 
+        if not getattr(sys, "frozen", False):
+            ctypes.windll.user32.SetProcessDPIAware()
         # Keep the taskbar identity separate from the Python/Tk host.
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("io.github.heitang.anicat")
 
@@ -320,17 +323,32 @@ def main(*, smoke_test: bool = False) -> int:
         print(f"無法開啟圖形介面：{error}")
         return 1
 
+    dpi = root.winfo_fpixels("1i") if sys.platform == "win32" else 96.0
+    if smoke_test and _smoke_dpi is not None:
+        dpi = float(_smoke_dpi)
+        root.tk.call("tk", "scaling", dpi / 72)
+    scale = dpi / 96
+
+    def px(value: int) -> int:
+        return round(value * scale)
+
     root.title("AniCat · Download workspace")
-    root.geometry("1060x720")
-    root.minsize(820, 660)
+    root.geometry(f"{px(1060)}x{px(720)}")
+    root.minsize(px(820), px(660))
     root.configure(bg=COLORS["paper"])
 
     assets = Path(__file__).with_name("assets")
     app_icon = tk.PhotoImage(master=root, file=str(assets / "anicat-logo-mark.png"))
     if sys.platform == "win32":
         root.iconphoto(True, app_icon)
-    logo = app_icon.subsample(8, 8)
-    mascot = tk.PhotoImage(master=root, file=str(assets / "anicat-mascot-mark.png")).subsample(4, 4)
+    ratio = Fraction(scale).limit_denominator(8)
+
+    def image_at_dpi(image: tk.PhotoImage, divisor: int) -> tk.PhotoImage:
+        return image.zoom(ratio.numerator).subsample(divisor * ratio.denominator)
+
+    logo = image_at_dpi(app_icon, 8)
+    mascot_source = tk.PhotoImage(master=root, file=str(assets / "anicat-mascot-mark.png"))
+    mascot = image_at_dpi(mascot_source, 4)
 
     body_family, mono_family = "Helvetica Neue", "Menlo"
     if sys.platform == "win32":
@@ -362,17 +380,17 @@ def main(*, smoke_test: bool = False) -> int:
             parent,
             bg=bg,
             highlightbackground=COLORS["line"],
-            highlightthickness=1,
+            highlightthickness=px(1),
             **kwargs,
         )
 
     outer = tk.Frame(root, bg=COLORS["paper"])
-    outer.pack(fill="both", expand=True, padx=34, pady=20)
+    outer.pack(fill="both", expand=True, padx=px(34), pady=px(20))
     header = tk.Frame(outer, bg=COLORS["paper"])
-    header.pack(fill="x", pady=(0, 14))
+    header.pack(fill="x", pady=(0, px(14)))
     brand_row = tk.Frame(header, bg=COLORS["paper"])
     brand_row.pack(side="left")
-    label(brand_row, "", image=logo).pack(side="left", padx=(0, 8))
+    label(brand_row, "", image=logo).pack(side="left", padx=(0, px(8)))
     brand_font = (body_family, 22, "bold")
     label(brand_row, "AniCat", font=brand_font, padx=0, borderwidth=0, highlightthickness=0).pack(
         side="left"
@@ -387,9 +405,9 @@ def main(*, smoke_test: bool = False) -> int:
         highlightthickness=0,
     ).pack(side="left")
     label(header, "LOCAL DOWNLOAD WORKSPACE  /  01", font=mono_font, fg=COLORS["muted"]).pack(
-        side="right", pady=7
+        side="right", pady=px(7)
     )
-    tk.Frame(outer, bg=COLORS["line"], height=1).pack(fill="x", pady=(0, 14))
+    tk.Frame(outer, bg=COLORS["line"], height=px(1)).pack(fill="x", pady=(0, px(14)))
 
     content = tk.Frame(outer, bg=COLORS["paper"])
     content.pack(fill="both", expand=True)
@@ -398,10 +416,10 @@ def main(*, smoke_test: bool = False) -> int:
     content.grid_rowconfigure(1, weight=1)
 
     intro = tk.Frame(content, bg=COLORS["paper"])
-    intro.grid(row=0, column=0, sticky="ew", pady=(0, 14))
+    intro.grid(row=0, column=0, sticky="ew", pady=(0, px(14)))
     label(intro, "01  /  DOWNLOAD", font=mono_font, fg=COLORS["accent"]).pack(anchor="w")
     label(intro, "把想看的，留在本機。", font=(body_family, 22, "bold")).pack(
-        anchor="w", pady=(4, 3)
+        anchor="w", pady=(px(4), px(3))
     )
     label(
         intro,
@@ -412,16 +430,18 @@ def main(*, smoke_test: bool = False) -> int:
     ).pack(anchor="w")
 
     form = tk.Frame(content, bg=COLORS["paper"])
-    form.grid(row=1, column=0, sticky="nsew", padx=(0, 22))
+    form.grid(row=1, column=0, sticky="nsew", padx=(0, px(22)))
     form.grid_columnconfigure(0, weight=1)
 
     url_card = card(form)
     url_card.grid(row=0, column=0, sticky="ew")
     url_card.grid_columnconfigure(0, weight=1)
     url_top = tk.Frame(url_card, bg=COLORS["surface"])
-    url_top.grid(row=0, column=0, sticky="ew", padx=20, pady=(17, 9))
+    url_top.grid(row=0, column=0, sticky="ew", padx=px(20), pady=(px(17), px(9)))
     label(url_top, "網址佇列", font=title_font).pack(side="left")
-    label(url_top, "一行一個網址", font=small_font, fg=COLORS["muted"]).pack(side="right", pady=4)
+    label(url_top, "一行一個網址", font=small_font, fg=COLORS["muted"]).pack(
+        side="right", pady=px(4)
+    )
     urls = tk.Text(
         url_card,
         height=4,
@@ -432,33 +452,33 @@ def main(*, smoke_test: bool = False) -> int:
         insertbackground=COLORS["accent"],
         relief="flat",
         borderwidth=0,
-        padx=14,
-        pady=12,
-        highlightthickness=1,
+        padx=px(14),
+        pady=px(12),
+        highlightthickness=px(1),
         highlightbackground=COLORS["line"],
         highlightcolor=COLORS["accent"],
     )
-    urls.grid(row=1, column=0, sticky="ew", padx=20)
+    urls.grid(row=1, column=0, sticky="ew", padx=px(20))
     label(
         url_card,
         "支援單集、分類與季度網址；多個網址會一起加入下載佇列。",
         font=small_font,
         fg=COLORS["muted"],
         justify="left",
-    ).grid(row=2, column=0, sticky="w", padx=20, pady=(9, 18))
+    ).grid(row=2, column=0, sticky="w", padx=px(20), pady=(px(9), px(18)))
 
     output_card = card(form)
-    output_card.grid(row=1, column=0, sticky="ew", pady=(16, 0))
+    output_card.grid(row=1, column=0, sticky="ew", pady=(px(16), 0))
     output_card.grid_columnconfigure(0, weight=1)
     output_title = tk.Frame(output_card, bg=COLORS["surface"])
-    output_title.grid(row=0, column=0, sticky="ew", padx=20, pady=(17, 9))
+    output_title.grid(row=0, column=0, sticky="ew", padx=px(20), pady=(px(17), px(9)))
     label(output_title, "儲存位置", font=title_font).pack(side="left")
     label(output_title, "完成後即時顯示", font=small_font, fg=COLORS["muted"]).pack(
-        side="right", pady=4
+        side="right", pady=px(4)
     )
     output = tk.StringVar(value=str(Path.home() / "Downloads" / "AniCat"))
     output_row = tk.Frame(output_card, bg=COLORS["surface"])
-    output_row.grid(row=1, column=0, sticky="ew", padx=20)
+    output_row.grid(row=1, column=0, sticky="ew", padx=px(20))
     output_row.grid_columnconfigure(0, weight=1)
     entry = tk.Entry(
         output_row,
@@ -469,11 +489,11 @@ def main(*, smoke_test: bool = False) -> int:
         relief="flat",
         borderwidth=0,
         insertbackground=COLORS["accent"],
-        highlightthickness=1,
+        highlightthickness=px(1),
         highlightbackground=COLORS["line"],
         highlightcolor=COLORS["accent"],
     )
-    entry.grid(row=0, column=0, sticky="ew", ipady=10, padx=(0, 10))
+    entry.grid(row=0, column=0, sticky="ew", ipady=px(10), padx=(0, px(10)))
 
     def choose() -> None:
         selected = filedialog.askdirectory(parent=root, title="選擇 AniCat 儲存資料夾")
@@ -491,9 +511,9 @@ def main(*, smoke_test: bool = False) -> int:
         activeforeground=COLORS["ink"],
         relief="flat",
         highlightbackground=COLORS["line"],
-        highlightthickness=1,
-        padx=14,
-        pady=8,
+        highlightthickness=px(1),
+        padx=px(14),
+        pady=px(8),
         cursor="hand2",
     )
     browse.grid(row=0, column=1)
@@ -503,9 +523,9 @@ def main(*, smoke_test: bool = False) -> int:
         font=small_font,
         fg=COLORS["muted"],
         justify="left",
-    ).grid(row=2, column=0, sticky="w", padx=20, pady=(9, 18))
+    ).grid(row=2, column=0, sticky="w", padx=px(20), pady=(px(9), px(18)))
 
-    state = {"busy": False, "error": False, "closing": False}
+    state = {"busy": False, "error": False, "closing": False, "closed": False}
     cancel = Event()
     events: Queue[GuiEvent | None] = Queue()
     item_rows: dict[str, tuple[tk.Frame, tk.Label, tk.Label, tk.Label]] = {}
@@ -515,9 +535,9 @@ def main(*, smoke_test: bool = False) -> int:
     status_text = tk.StringVar(value="就緒")
 
     label(content, "", image=mascot, borderwidth=0, highlightthickness=0, padx=0, pady=0).grid(
-        row=0, column=1, sticky="se", padx=(0, 22)
+        row=0, column=1, sticky="se", padx=(0, px(22))
     )
-    queue_panel = tk.Frame(content, bg=COLORS["dark"], padx=22, pady=20)
+    queue_panel = tk.Frame(content, bg=COLORS["dark"], padx=px(22), pady=px(20))
     queue_panel.grid(row=1, column=1, sticky="nsew")
     queue_panel.grid_rowconfigure(3, weight=1)
     queue_panel.grid_columnconfigure(0, weight=1)
@@ -526,7 +546,7 @@ def main(*, smoke_test: bool = False) -> int:
     label(queue_header, "02  /  QUEUE", font=mono_font, fg="#D88A70").pack(side="left")
     label(queue_header, "STATE", font=mono_font, fg=COLORS["dark_muted"]).pack(side="right")
     label(queue_panel, "這批下載", font=title_font, fg="#F5F2EA").grid(
-        row=1, column=0, sticky="w", pady=(15, 0)
+        row=1, column=0, sticky="w", pady=(px(15), 0)
     )
     tk.Label(
         queue_panel,
@@ -535,7 +555,7 @@ def main(*, smoke_test: bool = False) -> int:
         fg=COLORS["dark_muted"],
         bg=COLORS["dark"],
         anchor="w",
-    ).grid(row=2, column=0, sticky="ew", pady=(4, 16))
+    ).grid(row=2, column=0, sticky="ew", pady=(px(4), px(16)))
 
     queue_canvas = tk.Canvas(queue_panel, bg=COLORS["dark"], highlightthickness=0)
     queue_canvas.grid(row=3, column=0, sticky="nsew")
@@ -546,7 +566,7 @@ def main(*, smoke_test: bool = False) -> int:
         bg=COLORS["dark"],
         troughcolor=COLORS["dark"],
         activebackground=COLORS["dark_muted"],
-        width=8,
+        width=px(8),
         bd=0,
         highlightthickness=0,
         relief="flat",
@@ -600,10 +620,10 @@ def main(*, smoke_test: bool = False) -> int:
         fg=COLORS["dark_muted"],
         justify="left",
     )
-    empty_label.pack(anchor="w", pady=(3, 16))
+    empty_label.pack(anchor="w", pady=(px(3), px(16)))
 
     bottom = tk.Frame(queue_panel, bg=COLORS["dark"])
-    bottom.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(18, 0))
+    bottom.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(px(18), 0))
     bottom.grid_columnconfigure(0, weight=1)
     tk.Label(
         bottom,
@@ -622,14 +642,16 @@ def main(*, smoke_test: bool = False) -> int:
         existing = item_rows.get(url)
         if existing:
             return existing
-        row = tk.Frame(queue_inner, bg="#2B3B31", padx=12, pady=10)
-        row.pack(fill="x", pady=(0, 8))
+        row = tk.Frame(queue_inner, bg="#2B3B31", padx=px(12), pady=px(10))
+        row.pack(fill="x", pady=(0, px(8)))
         # Reserve four CJK characters so stage changes do not reflow the row.
-        badge = tk.Label(row, text="等待中", font=(body_family, 8, "bold"), width=8, padx=7, pady=4)
+        badge = tk.Label(
+            row, text="等待中", font=(body_family, 8, "bold"), width=8, padx=px(7), pady=px(4)
+        )
         badge.pack(side="left", anchor="n")
         set_badge(badge, "queued")
         middle = tk.Frame(row, bg="#2B3B31")
-        middle.pack(side="left", fill="x", expand=True, padx=(10, 8))
+        middle.pack(side="left", fill="x", expand=True, padx=(px(10), px(8)))
         title = tk.Label(
             middle,
             text=url,
@@ -638,7 +660,7 @@ def main(*, smoke_test: bool = False) -> int:
             bg="#2B3B31",
             anchor="w",
             justify="left",
-            wraplength=300,
+            wraplength=px(300),
         )
         title.pack(fill="x")
         detail = tk.Label(
@@ -649,9 +671,9 @@ def main(*, smoke_test: bool = False) -> int:
             bg="#2B3B31",
             anchor="w",
             justify="left",
-            wraplength=300,
+            wraplength=px(300),
         )
-        detail.pack(fill="x", pady=(4, 0))
+        detail.pack(fill="x", pady=(px(4), 0))
         item_rows[url] = (row, badge, title, detail)
         empty_label.pack_forget()
         return item_rows[url]
@@ -660,7 +682,7 @@ def main(*, smoke_test: bool = False) -> int:
         for row, _badge, _title, _detail in item_rows.values():
             row.destroy()
         item_rows.clear()
-        empty_label.pack(anchor="w", pady=(3, 16))
+        empty_label.pack(anchor="w", pady=(px(3), px(16)))
         total.set(0)
         finished.set(0)
         summary.set("尚未開始")
@@ -759,9 +781,22 @@ def main(*, smoke_test: bool = False) -> int:
             takefocus=not stopping,
         )
 
+    poll_id: str | None = None
+
     def poll() -> None:
+        nonlocal poll_id
+        poll_id = None
         yielded = process_gui_events(events, handle)
-        root.after(1 if yielded else 100, poll)
+        if not state["closed"]:
+            poll_id = root.after(1 if yielded else 100, poll)
+
+    def window_destroyed(event) -> None:
+        if event.widget == root:
+            state["closed"] = True
+            if poll_id is not None:
+                root.after_cancel(poll_id)
+
+    root.bind("<Destroy>", window_destroyed)
 
     def show_tool_help() -> None:
         if getattr(sys, "frozen", False):
@@ -778,16 +813,16 @@ def main(*, smoke_test: bool = False) -> int:
         dialog.title("準備影片處理工具")
         dialog.configure(bg=COLORS["paper"])
         dialog.transient(root)
-        panel = tk.Frame(dialog, bg=COLORS["paper"], padx=24, pady=22)
+        panel = tk.Frame(dialog, bg=COLORS["paper"], padx=px(24), pady=px(22))
         panel.pack(fill="both", expand=True)
         label(panel, "影片處理工具 FFmpeg", font=title_font).pack(anchor="w")
         label(
             panel,
             "一般安裝會一起準備好，不需要另外設定。\n"
             "若檢查失敗，下載不會開始。請依原本的安裝方式修復，完成後重新開啟。",
-            wraplength=470,
+            wraplength=px(470),
             justify="left",
-        ).pack(anchor="w", pady=(12, 14))
+        ).pack(anchor="w", pady=(px(12), px(14)))
         command = (
             "# uv tool 安裝（不需要專案資料夾）\n"
             "uv tool upgrade anicat --reinstall-package imageio-ffmpeg\n\n"
@@ -807,27 +842,27 @@ def main(*, smoke_test: bool = False) -> int:
             copy_button.configure(text="已複製")
 
         buttons = tk.Frame(panel, bg=COLORS["paper"])
-        buttons.pack(fill="x", pady=(14, 12))
+        buttons.pack(fill="x", pady=(px(14), px(12)))
         copy_button = tk.Button(buttons, text="複製修復指令", command=copy_command)
         copy_button.pack(side="left")
         tk.Button(
             buttons,
             text="其他安裝方式",
             command=lambda: webbrowser.open("https://ffmpeg.org/download.html"),
-        ).pack(side="left", padx=8)
+        ).pack(side="left", padx=px(8))
         tk.Button(buttons, text="關閉", command=dialog.destroy).pack(side="right")
         label(
             panel,
             "完成後關閉此說明，再按「開始下載」，程式會重新檢查。",
             font=small_font,
-            wraplength=470,
+            wraplength=px(470),
             justify="left",
         ).pack(anchor="w")
         dialog.bind("<Escape>", lambda _event: dialog.destroy())
         copy_button.focus_set()
 
     actions = tk.Frame(form, bg=COLORS["paper"])
-    actions.grid(row=2, column=0, sticky="ew", pady=(18, 0))
+    actions.grid(row=2, column=0, sticky="ew", pady=(px(18), 0))
     actions.grid_columnconfigure(0, weight=1)
     tool_info = tk.Frame(actions, bg=COLORS["paper"])
     tool_info.grid(row=0, column=0, sticky="w")
@@ -842,11 +877,11 @@ def main(*, smoke_test: bool = False) -> int:
         fg=COLORS["accent"],
         cursor="hand2",
         takefocus=True,
-        highlightthickness=1,
+        highlightthickness=px(1),
         highlightbackground=COLORS["paper"],
         highlightcolor=COLORS["accent"],
     )
-    tool_help.pack(anchor="w", pady=(4, 0))
+    tool_help.pack(anchor="w", pady=(px(4), 0))
     tool_help.bind("<Button-1>", lambda _event: show_tool_help())
     tool_help.bind("<Return>", lambda _event: show_tool_help())
     tool_help.bind("<space>", lambda _event: show_tool_help())
@@ -858,11 +893,11 @@ def main(*, smoke_test: bool = False) -> int:
         fg="#FFFFFF",
         relief="flat",
         borderwidth=0,
-        padx=20,
-        pady=11,
+        padx=px(20),
+        pady=px(11),
         cursor="hand2",
         takefocus=True,
-        highlightthickness=2,
+        highlightthickness=px(2),
         highlightbackground=COLORS["accent"],
         highlightcolor=COLORS["ink"],
     )
@@ -896,7 +931,7 @@ def main(*, smoke_test: bool = False) -> int:
             root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", close)
-    root.after(100, poll)
+    poll_id = root.after(100, poll)
     smoke_errors: list[BaseException] = []
     if smoke_test:
 
@@ -905,6 +940,13 @@ def main(*, smoke_test: bool = False) -> int:
             root.destroy()
 
         def check_ui() -> None:
+            if sys.platform == "win32":
+                awareness = ctypes.c_int()
+                result = ctypes.windll.shcore.GetProcessDpiAwareness(None, ctypes.byref(awareness))
+                assert result == 0 and awareness.value == 1, "App is not system-DPI aware"
+            assert root.minsize() == (px(820), px(660)), "window DPI scale mismatch"
+            assert abs(logo.width() - app_icon.width() * scale / 8) <= 1
+            assert abs(mascot.height() - mascot_source.height() * scale / 4) <= 1
             handle(GuiEvent("queue", total=12))
             for index in range(12):
                 handle(GuiEvent("item", url=f"https://anime1.me/{index}", state="queued"))
@@ -929,7 +971,7 @@ def main(*, smoke_test: bool = False) -> int:
             assert item_rows["https://anime1.me/0"][1].cget("text") == "失敗"
             assert item_rows["https://anime1.me/1"][1].cget("text") == "已停止"
             destroyed = []
-            root.bind("<Destroy>", lambda event: destroyed.append(event.widget == root))
+            root.bind("<Destroy>", lambda event: destroyed.append(event.widget == root), add="+")
             state["closing"] = True
             handle(None)
             assert any(destroyed), "earlier download error prevented close"
