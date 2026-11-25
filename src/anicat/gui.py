@@ -660,7 +660,9 @@ def main(*, smoke_test: bool = False, _smoke_dpi: int | None = None) -> int:
             bg="#2B3B31",
             anchor="w",
             justify="left",
-            wraplength=px(300),
+            width=1,
+            padx=0,
+            borderwidth=0,
         )
         title.pack(fill="x")
         detail = tk.Label(
@@ -671,9 +673,18 @@ def main(*, smoke_test: bool = False, _smoke_dpi: int | None = None) -> int:
             bg="#2B3B31",
             anchor="w",
             justify="left",
-            wraplength=px(300),
+            width=1,
+            padx=0,
+            borderwidth=0,
         )
         detail.pack(fill="x", pady=(px(4), 0))
+
+        def wrap_text(event) -> None:
+            # Wrap inside the allocated column, including after DPI scaling or resizing.
+            title.configure(wraplength=max(1, event.width))
+            detail.configure(wraplength=max(1, event.width))
+
+        middle.bind("<Configure>", wrap_text)
         item_rows[url] = (row, badge, title, detail)
         empty_label.pack_forget()
         return item_rows[url]
@@ -936,6 +947,7 @@ def main(*, smoke_test: bool = False, _smoke_dpi: int | None = None) -> int:
     if smoke_test:
 
         def smoke_failed(_kind, error, _traceback) -> None:
+            print(f"GUI smoke test failed: {error}", file=sys.stderr)
             smoke_errors.append(error)
             root.destroy()
 
@@ -950,6 +962,29 @@ def main(*, smoke_test: bool = False, _smoke_dpi: int | None = None) -> int:
             handle(GuiEvent("queue", total=12))
             for index in range(12):
                 handle(GuiEvent("item", url=f"https://anime1.me/{index}", state="queued"))
+            long_path = (
+                r"C:\Users\Orange\AppData\Local\Temp\AniCat-PR25-8e8432a"
+                r"\acceptance-20261125-201745\output-stop\你又被殺了呢，偵探大人 [08].mp4"
+            )
+            path_label = item_rows["https://anime1.me/0"][3]
+            path_label.configure(text=long_path)
+            root.update_idletasks()
+            queue_width = queue_canvas.winfo_width()
+            wrap_widths = []
+            for width in (queue_width, queue_width - px(80), queue_width):
+                queue_canvas.event_generate("<Configure>", width=width)
+                root.update_idletasks()
+                for _row, _badge, title, detail in item_rows.values():
+                    for text_label in (title, detail):
+                        assert 0 < int(text_label.cget("wraplength")) <= text_label.winfo_width(), (
+                            "queue text wraps outside its visible column"
+                        )
+                assert path_label.cget("text") == long_path, "queue path was truncated"
+                assert path_label.winfo_height() > tkfont.Font(font=small_font).metrics("linespace")
+                wrap_widths.append(int(path_label.cget("wraplength")))
+            assert wrap_widths[1] < wrap_widths[0] == wrap_widths[2], (
+                f"queue wrap did not resize: {wrap_widths}"
+            )
             root.update_idletasks()
             # A wheel event over a row must reach the queue's top-level binding.
             item_rows["https://anime1.me/0"][2].event_generate("<MouseWheel>", delta=-120)
