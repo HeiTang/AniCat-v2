@@ -2,29 +2,36 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import signal
+import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
+from fractions import Fraction
 from multiprocessing import get_context
+from multiprocessing.process import BaseProcess
 from pathlib import Path
 from queue import Empty, Queue
-from threading import Thread
+from threading import Event, Thread
 from time import monotonic
 from typing import Literal, Protocol
 
-from .ffmpeg import find_ffmpeg
+from .ffmpeg import FFMPEG_CREATION_FLAGS, find_ffmpeg
 from .models import DownloadStage, JobReport
 from .options import DownloadOptions
 from .service import AniCatService
 from .urls import split_urls
 
-GuiItemState = DownloadStage | Literal["queued", "done", "skipped", "error"]
+GuiItemState = DownloadStage | Literal["queued", "done", "skipped", "error", "cancelled"]
 
 
 @dataclass(frozen=True)
 class GuiEvent:
     """Thread-to-UI message; no guessed progress is sent."""
 
-    kind: Literal["status", "queue", "item", "tool"]
+    kind: Literal["status", "queue", "item", "tool", "stop_error"]
     text: str = ""
     url: str = ""
     state: GuiItemState | None = None
@@ -55,6 +62,59 @@ def process_gui_events(
         if monotonic() >= deadline:
             return True
     return True
+
+
+def _download_worker(
+    urls: list[str],
+    output: Path,
+    events: GuiEventSink,
+    download: Callable[[list[str], Path, GuiEventSink], None],
+) -> None:
+    if sys.platform != "win32":
+        os.setsid()
+    download(urls, output, events)
+
+
+def stop_download_worker(process: BaseProcess) -> None:
+    """Stop only this worker and its FFmpeg descendants, then reap the worker."""
+    if process.pid is None:
+        return
+    if sys.platform == "win32":
+        result = subprocess.run(
+            [
+                str(Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/taskkill.exe"),
+                "/PID",
+                str(process.pid),
+                "/T",
+                "/F",
+            ],
+            capture_output=True,
+            timeout=10,
+            creationflags=FFMPEG_CREATION_FLAGS,
+        )
+        if result.returncode and process.is_alive():
+            raise RuntimeError("無法停止下載工作，請重試。")
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            if process.is_alive():
+                process.terminate()
+    process.join(timeout=2)
+    if sys.platform != "win32":
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            # macOS may reject signalling a group whose remaining members have exited.
+            if process.is_alive():
+                raise
+    if process.is_alive():
+        process.kill()
+    process.join(timeout=2)
+    if process.is_alive():
+        raise RuntimeError("下載工作仍在執行，請再次停止。")
 
 
 def run_download(urls: list[str], output: Path, events: GuiEventSink) -> None:
@@ -99,19 +159,70 @@ def run_download(urls: list[str], output: Path, events: GuiEventSink) -> None:
         events.put(None)
 
 
-def run_download_isolated(urls: list[str], output: Path, events: GuiEventSink) -> None:
+def run_download_isolated(
+    urls: list[str], output: Path, events: GuiEventSink, cancel: Event | None = None
+) -> None:
     """Relay a spawned worker's events without sharing its GIL with Tk."""
 
     channel = None
     process = None
     needs_join = False
+    cancel = cancel if cancel is not None else Event()
+
+    def stop_worker() -> bool:
+        nonlocal needs_join
+        assert process is not None and channel is not None
+        while True:
+            try:
+                stop_download_worker(process)
+                return True
+            except Exception as error:
+                cancel.clear()
+                events.put(GuiEvent("stop_error", detail=str(error)))
+                # Keep relaying so the worker can flush its Queue and exit naturally.
+                while not cancel.is_set():
+                    try:
+                        event = channel.get(timeout=0.1)
+                    except Empty:
+                        if process.is_alive():
+                            continue
+                        process.join()
+                        needs_join = False
+                        raise RuntimeError(
+                            f"下載工作程序意外結束（退出碼 {process.exitcode}），請重試。"
+                        ) from None
+                    if event is None:
+                        process.join()
+                        needs_join = False
+                        if process.exitcode != 0:
+                            raise RuntimeError(
+                                f"下載工作程序異常退出（退出碼 {process.exitcode}），請重試。"
+                            ) from None
+                        cancel.clear()
+                        return False
+                    events.put(event)
+
     try:
         context = get_context("spawn")
         channel = context.Queue()
-        process = context.Process(target=run_download, args=(urls, output, channel), daemon=True)
+        process = context.Process(
+            target=_download_worker, args=(urls, output, channel, run_download), daemon=True
+        )
         process.start()
         needs_join = True
         while True:
+            if cancel.is_set():
+                stopped = stop_worker()
+                needs_join = False
+                if not stopped:
+                    break
+                cancel.set()
+                # HLS intermediates belong to this worker; direct MP4 .part files stay resumable.
+                for temporary in output.glob(f".anicat-hls-{process.pid}-*"):
+                    if temporary.is_dir() and not temporary.is_symlink():
+                        shutil.rmtree(temporary)
+                events.put(GuiEvent("status", text="已停止下載"))
+                break
             try:
                 event = channel.get(timeout=0.1)
             except Empty:
@@ -135,7 +246,7 @@ def run_download_isolated(urls: list[str], output: Path, events: GuiEventSink) -
         try:
             if process is not None:
                 if needs_join:
-                    process.join()
+                    stop_worker()
                 process.close()
             if channel is not None:
                 channel.close()
@@ -174,6 +285,7 @@ STATUS_COPY: dict[GuiItemState, tuple[str, str, str]] = {
     "done": ("完成", COLORS["done_bg"], COLORS["done_fg"]),
     "skipped": ("已存在", COLORS["skipped_bg"], COLORS["skipped_fg"]),
     "error": ("失敗", COLORS["error_bg"], COLORS["error_fg"]),
+    "cancelled": ("已停止", COLORS["skipped_bg"], COLORS["skipped_fg"]),
 }
 
 
@@ -186,15 +298,24 @@ STAGE_DETAIL: dict[DownloadStage, str] = {
 }
 
 
-def main() -> int:
+def main(*, smoke_test: bool = False, _smoke_dpi: int | None = None) -> int:
     """Open the AniCat desktop workspace."""
 
     try:
         import tkinter as tk
         from tkinter import filedialog, messagebox
+        from tkinter import font as tkfont
     except ImportError:
         print("圖形介面需要 Python 的 Tk 支援。請安裝含 Tk 的 Python，或使用 anicat CLI。")
         return 1
+
+    if sys.platform == "win32":
+        import ctypes
+
+        if not getattr(sys, "frozen", False):
+            ctypes.windll.user32.SetProcessDPIAware()
+        # Keep the taskbar identity separate from the Python/Tk host.
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("io.github.heitang.anicat")
 
     try:
         root = tk.Tk()
@@ -202,19 +323,54 @@ def main() -> int:
         print(f"無法開啟圖形介面：{error}")
         return 1
 
+    dpi = root.winfo_fpixels("1i") if sys.platform == "win32" else 96.0
+    if smoke_test and _smoke_dpi is not None:
+        dpi = float(_smoke_dpi)
+        root.tk.call("tk", "scaling", dpi / 72)
+    scale = dpi / 96
+
+    def px(value: int) -> int:
+        return round(value * scale)
+
     root.title("AniCat · Download workspace")
-    root.geometry("1060x720")
-    root.minsize(820, 660)
+    root.geometry(f"{px(1060)}x{px(720)}")
+    root.minsize(px(820), px(660))
     root.configure(bg=COLORS["paper"])
 
     assets = Path(__file__).with_name("assets")
-    logo = tk.PhotoImage(master=root, file=str(assets / "anicat-logo-mark.png")).subsample(8, 8)
-    mascot = tk.PhotoImage(master=root, file=str(assets / "anicat-mascot-mark.png")).subsample(4, 4)
+    app_icon = tk.PhotoImage(master=root, file=str(assets / "anicat-logo-mark.png"))
+    if sys.platform == "win32":
+        root.iconphoto(True, app_icon)
+    ratio = Fraction(scale).limit_denominator(8)
 
-    title_font = ("Helvetica Neue", 18, "bold")
-    body_font = ("Helvetica Neue", 11)
-    small_font = ("Helvetica Neue", 9)
-    mono_font = ("Menlo", 9)
+    def image_at_dpi(image: tk.PhotoImage, divisor: int) -> tk.PhotoImage:
+        return image.zoom(ratio.numerator).subsample(divisor * ratio.denominator)
+
+    logo = image_at_dpi(app_icon, 8)
+    mascot_source = tk.PhotoImage(master=root, file=str(assets / "anicat-mascot-mark.png"))
+    mascot = image_at_dpi(mascot_source, 4)
+
+    body_family, mono_family = "Helvetica Neue", "Menlo"
+    if sys.platform == "win32":
+        families = set(tkfont.families(root))
+        body_family = next(
+            (
+                name
+                for name in ("Microsoft JhengHei UI", "Microsoft JhengHei", "Segoe UI")
+                if name in families
+            ),
+            tkfont.nametofont("TkDefaultFont", root).actual("family"),
+        )
+        mono_family = (
+            "Consolas"
+            if "Consolas" in families
+            else tkfont.nametofont("TkFixedFont", root).actual("family")
+        )
+
+    title_font = (body_family, 18, "bold")
+    body_font = (body_family, 11)
+    small_font = (body_family, 9)
+    mono_font = (mono_family, 9)
 
     def label(parent: tk.Misc, text: str, *, font=body_font, fg=COLORS["ink"], **kwargs):
         return tk.Label(parent, text=text, font=font, fg=fg, bg=parent.cget("bg"), **kwargs)
@@ -224,18 +380,18 @@ def main() -> int:
             parent,
             bg=bg,
             highlightbackground=COLORS["line"],
-            highlightthickness=1,
+            highlightthickness=px(1),
             **kwargs,
         )
 
     outer = tk.Frame(root, bg=COLORS["paper"])
-    outer.pack(fill="both", expand=True, padx=34, pady=20)
+    outer.pack(fill="both", expand=True, padx=px(34), pady=px(20))
     header = tk.Frame(outer, bg=COLORS["paper"])
-    header.pack(fill="x", pady=(0, 14))
+    header.pack(fill="x", pady=(0, px(14)))
     brand_row = tk.Frame(header, bg=COLORS["paper"])
     brand_row.pack(side="left")
-    label(brand_row, "", image=logo).pack(side="left", padx=(0, 8))
-    brand_font = ("Helvetica Neue", 22, "bold")
+    label(brand_row, "", image=logo).pack(side="left", padx=(0, px(8)))
+    brand_font = (body_family, 22, "bold")
     label(brand_row, "AniCat", font=brand_font, padx=0, borderwidth=0, highlightthickness=0).pack(
         side="left"
     )
@@ -249,9 +405,9 @@ def main() -> int:
         highlightthickness=0,
     ).pack(side="left")
     label(header, "LOCAL DOWNLOAD WORKSPACE  /  01", font=mono_font, fg=COLORS["muted"]).pack(
-        side="right", pady=7
+        side="right", pady=px(7)
     )
-    tk.Frame(outer, bg=COLORS["line"], height=1).pack(fill="x", pady=(0, 14))
+    tk.Frame(outer, bg=COLORS["line"], height=px(1)).pack(fill="x", pady=(0, px(14)))
 
     content = tk.Frame(outer, bg=COLORS["paper"])
     content.pack(fill="both", expand=True)
@@ -260,10 +416,10 @@ def main() -> int:
     content.grid_rowconfigure(1, weight=1)
 
     intro = tk.Frame(content, bg=COLORS["paper"])
-    intro.grid(row=0, column=0, sticky="ew", pady=(0, 14))
+    intro.grid(row=0, column=0, sticky="ew", pady=(0, px(14)))
     label(intro, "01  /  DOWNLOAD", font=mono_font, fg=COLORS["accent"]).pack(anchor="w")
-    label(intro, "把想看的，留在本機。", font=("Helvetica Neue", 22, "bold")).pack(
-        anchor="w", pady=(4, 3)
+    label(intro, "把想看的，留在本機。", font=(body_family, 22, "bold")).pack(
+        anchor="w", pady=(px(4), px(3))
     )
     label(
         intro,
@@ -274,16 +430,18 @@ def main() -> int:
     ).pack(anchor="w")
 
     form = tk.Frame(content, bg=COLORS["paper"])
-    form.grid(row=1, column=0, sticky="nsew", padx=(0, 22))
+    form.grid(row=1, column=0, sticky="nsew", padx=(0, px(22)))
     form.grid_columnconfigure(0, weight=1)
 
     url_card = card(form)
     url_card.grid(row=0, column=0, sticky="ew")
     url_card.grid_columnconfigure(0, weight=1)
     url_top = tk.Frame(url_card, bg=COLORS["surface"])
-    url_top.grid(row=0, column=0, sticky="ew", padx=20, pady=(17, 9))
+    url_top.grid(row=0, column=0, sticky="ew", padx=px(20), pady=(px(17), px(9)))
     label(url_top, "網址佇列", font=title_font).pack(side="left")
-    label(url_top, "一行一個網址", font=small_font, fg=COLORS["muted"]).pack(side="right", pady=4)
+    label(url_top, "一行一個網址", font=small_font, fg=COLORS["muted"]).pack(
+        side="right", pady=px(4)
+    )
     urls = tk.Text(
         url_card,
         height=4,
@@ -294,33 +452,33 @@ def main() -> int:
         insertbackground=COLORS["accent"],
         relief="flat",
         borderwidth=0,
-        padx=14,
-        pady=12,
-        highlightthickness=1,
+        padx=px(14),
+        pady=px(12),
+        highlightthickness=px(1),
         highlightbackground=COLORS["line"],
         highlightcolor=COLORS["accent"],
     )
-    urls.grid(row=1, column=0, sticky="ew", padx=20)
+    urls.grid(row=1, column=0, sticky="ew", padx=px(20))
     label(
         url_card,
         "支援單集、分類與季度網址；多個網址會一起加入下載佇列。",
         font=small_font,
         fg=COLORS["muted"],
         justify="left",
-    ).grid(row=2, column=0, sticky="w", padx=20, pady=(9, 18))
+    ).grid(row=2, column=0, sticky="w", padx=px(20), pady=(px(9), px(18)))
 
     output_card = card(form)
-    output_card.grid(row=1, column=0, sticky="ew", pady=(16, 0))
+    output_card.grid(row=1, column=0, sticky="ew", pady=(px(16), 0))
     output_card.grid_columnconfigure(0, weight=1)
     output_title = tk.Frame(output_card, bg=COLORS["surface"])
-    output_title.grid(row=0, column=0, sticky="ew", padx=20, pady=(17, 9))
+    output_title.grid(row=0, column=0, sticky="ew", padx=px(20), pady=(px(17), px(9)))
     label(output_title, "儲存位置", font=title_font).pack(side="left")
     label(output_title, "完成後即時顯示", font=small_font, fg=COLORS["muted"]).pack(
-        side="right", pady=4
+        side="right", pady=px(4)
     )
     output = tk.StringVar(value=str(Path.home() / "Downloads" / "AniCat"))
     output_row = tk.Frame(output_card, bg=COLORS["surface"])
-    output_row.grid(row=1, column=0, sticky="ew", padx=20)
+    output_row.grid(row=1, column=0, sticky="ew", padx=px(20))
     output_row.grid_columnconfigure(0, weight=1)
     entry = tk.Entry(
         output_row,
@@ -331,11 +489,11 @@ def main() -> int:
         relief="flat",
         borderwidth=0,
         insertbackground=COLORS["accent"],
-        highlightthickness=1,
+        highlightthickness=px(1),
         highlightbackground=COLORS["line"],
         highlightcolor=COLORS["accent"],
     )
-    entry.grid(row=0, column=0, sticky="ew", ipady=10, padx=(0, 10))
+    entry.grid(row=0, column=0, sticky="ew", ipady=px(10), padx=(0, px(10)))
 
     def choose() -> None:
         selected = filedialog.askdirectory(parent=root, title="選擇 AniCat 儲存資料夾")
@@ -346,16 +504,16 @@ def main() -> int:
         output_row,
         text="選擇資料夾",
         command=choose,
-        font=("Helvetica Neue", 10, "bold"),
+        font=(body_family, 10, "bold"),
         bg=COLORS["surface"],
         fg=COLORS["ink"],
         activebackground="#E9E5DB",
         activeforeground=COLORS["ink"],
         relief="flat",
         highlightbackground=COLORS["line"],
-        highlightthickness=1,
-        padx=14,
-        pady=8,
+        highlightthickness=px(1),
+        padx=px(14),
+        pady=px(8),
         cursor="hand2",
     )
     browse.grid(row=0, column=1)
@@ -365,9 +523,10 @@ def main() -> int:
         font=small_font,
         fg=COLORS["muted"],
         justify="left",
-    ).grid(row=2, column=0, sticky="w", padx=20, pady=(9, 18))
+    ).grid(row=2, column=0, sticky="w", padx=px(20), pady=(px(9), px(18)))
 
-    state = {"busy": False, "error": False}
+    state = {"busy": False, "error": False, "closing": False, "closed": False}
+    cancel = Event()
     events: Queue[GuiEvent | None] = Queue()
     item_rows: dict[str, tuple[tk.Frame, tk.Label, tk.Label, tk.Label]] = {}
     total = tk.IntVar(value=0)
@@ -376,9 +535,9 @@ def main() -> int:
     status_text = tk.StringVar(value="就緒")
 
     label(content, "", image=mascot, borderwidth=0, highlightthickness=0, padx=0, pady=0).grid(
-        row=0, column=1, sticky="se", padx=(0, 22)
+        row=0, column=1, sticky="se", padx=(0, px(22))
     )
-    queue_panel = tk.Frame(content, bg=COLORS["dark"], padx=22, pady=20)
+    queue_panel = tk.Frame(content, bg=COLORS["dark"], padx=px(22), pady=px(20))
     queue_panel.grid(row=1, column=1, sticky="nsew")
     queue_panel.grid_rowconfigure(3, weight=1)
     queue_panel.grid_columnconfigure(0, weight=1)
@@ -387,7 +546,7 @@ def main() -> int:
     label(queue_header, "02  /  QUEUE", font=mono_font, fg="#D88A70").pack(side="left")
     label(queue_header, "STATE", font=mono_font, fg=COLORS["dark_muted"]).pack(side="right")
     label(queue_panel, "這批下載", font=title_font, fg="#F5F2EA").grid(
-        row=1, column=0, sticky="w", pady=(15, 0)
+        row=1, column=0, sticky="w", pady=(px(15), 0)
     )
     tk.Label(
         queue_panel,
@@ -396,7 +555,7 @@ def main() -> int:
         fg=COLORS["dark_muted"],
         bg=COLORS["dark"],
         anchor="w",
-    ).grid(row=2, column=0, sticky="ew", pady=(4, 16))
+    ).grid(row=2, column=0, sticky="ew", pady=(px(4), px(16)))
 
     queue_canvas = tk.Canvas(queue_panel, bg=COLORS["dark"], highlightthickness=0)
     queue_canvas.grid(row=3, column=0, sticky="nsew")
@@ -407,7 +566,7 @@ def main() -> int:
         bg=COLORS["dark"],
         troughcolor=COLORS["dark"],
         activebackground=COLORS["dark_muted"],
-        width=8,
+        width=px(8),
         bd=0,
         highlightthickness=0,
         relief="flat",
@@ -433,9 +592,21 @@ def main() -> int:
         queue_canvas.yview_scroll(direction, "units")
         return "break"
 
-    queue_canvas.bind("<MouseWheel>", scroll_queue)
-    queue_canvas.bind("<Button-4>", lambda _event: queue_canvas.yview_scroll(-1, "units"))
-    queue_canvas.bind("<Button-5>", lambda _event: queue_canvas.yview_scroll(1, "units"))
+    def queue_wheel(event):
+        widget = event.widget
+        while widget is not None:
+            if widget == queue_canvas:
+                if event.num in (4, 5):
+                    queue_canvas.yview_scroll(-1 if event.num == 4 else 1, "units")
+                    return "break"
+                return scroll_queue(event)
+            widget = getattr(widget, "master", None)
+        return None
+
+    root.bind("<MouseWheel>", queue_wheel)
+    if sys.platform not in ("win32", "darwin"):
+        root.bind("<Button-4>", queue_wheel)
+        root.bind("<Button-5>", queue_wheel)
 
     def resize_queue(event) -> None:
         queue_canvas.itemconfigure(queue_window, width=event.width)
@@ -449,15 +620,15 @@ def main() -> int:
         fg=COLORS["dark_muted"],
         justify="left",
     )
-    empty_label.pack(anchor="w", pady=(3, 16))
+    empty_label.pack(anchor="w", pady=(px(3), px(16)))
 
     bottom = tk.Frame(queue_panel, bg=COLORS["dark"])
-    bottom.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(18, 0))
+    bottom.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(px(18), 0))
     bottom.grid_columnconfigure(0, weight=1)
     tk.Label(
         bottom,
         textvariable=status_text,
-        font=("Helvetica Neue", 10, "bold"),
+        font=(body_family, 10, "bold"),
         fg="#F5F2EA",
         bg=COLORS["dark"],
         anchor="w",
@@ -471,14 +642,16 @@ def main() -> int:
         existing = item_rows.get(url)
         if existing:
             return existing
-        row = tk.Frame(queue_inner, bg="#2B3B31", padx=12, pady=10)
-        row.pack(fill="x", pady=(0, 8))
+        row = tk.Frame(queue_inner, bg="#2B3B31", padx=px(12), pady=px(10))
+        row.pack(fill="x", pady=(0, px(8)))
         # Reserve four CJK characters so stage changes do not reflow the row.
-        badge = tk.Label(row, text="等待中", font=("Menlo", 8, "bold"), width=8, padx=7, pady=4)
+        badge = tk.Label(
+            row, text="等待中", font=(body_family, 8, "bold"), width=8, padx=px(7), pady=px(4)
+        )
         badge.pack(side="left", anchor="n")
         set_badge(badge, "queued")
         middle = tk.Frame(row, bg="#2B3B31")
-        middle.pack(side="left", fill="x", expand=True, padx=(10, 8))
+        middle.pack(side="left", fill="x", expand=True, padx=(px(10), px(8)))
         title = tk.Label(
             middle,
             text=url,
@@ -487,7 +660,9 @@ def main() -> int:
             bg="#2B3B31",
             anchor="w",
             justify="left",
-            wraplength=300,
+            width=1,
+            padx=0,
+            borderwidth=0,
         )
         title.pack(fill="x")
         detail = tk.Label(
@@ -498,9 +673,18 @@ def main() -> int:
             bg="#2B3B31",
             anchor="w",
             justify="left",
-            wraplength=300,
+            width=1,
+            padx=0,
+            borderwidth=0,
         )
-        detail.pack(fill="x", pady=(4, 0))
+        detail.pack(fill="x", pady=(px(4), 0))
+
+        def wrap_text(event) -> None:
+            # Wrap inside the allocated column, including after DPI scaling or resizing.
+            title.configure(wraplength=max(1, event.width))
+            detail.configure(wraplength=max(1, event.width))
+
+        middle.bind("<Configure>", wrap_text)
         item_rows[url] = (row, badge, title, detail)
         empty_label.pack_forget()
         return item_rows[url]
@@ -509,7 +693,7 @@ def main() -> int:
         for row, _badge, _title, _detail in item_rows.values():
             row.destroy()
         item_rows.clear()
-        empty_label.pack(anchor="w", pady=(3, 16))
+        empty_label.pack(anchor="w", pady=(px(3), px(16)))
         total.set(0)
         finished.set(0)
         summary.set("尚未開始")
@@ -518,9 +702,28 @@ def main() -> int:
     def handle(event: GuiEvent | None) -> None:
         if event is None:
             state["busy"] = False
-            start_button.configure(text="開始下載")
-            style_start()
-            status_text.set("這批工作已結束" if not state["error"] else "有工作需要處理")
+            if cancel.is_set():
+                for _row, badge, _title, detail in item_rows.values():
+                    if badge.cget("text") not in ("完成", "已存在", "失敗"):
+                        set_badge(badge, "cancelled")
+                        detail.configure(text="已停止；重新開始即可重試。")
+            style_download()
+            if state["closing"]:
+                root.destroy()
+                return
+            state["closing"] = False
+            status_text.set(
+                "有工作需要處理"
+                if state["error"]
+                else "已停止下載"
+                if cancel.is_set()
+                else "這批工作已結束"
+            )
+        elif event.kind == "stop_error":
+            state["closing"] = False
+            style_download()
+            status_text.set("停止失敗，請再次按「停止下載」")
+            messagebox.showerror("無法停止下載", event.detail, parent=root)
         elif event.kind == "tool":
             if event.text == "missing":
                 state["error"] = True
@@ -566,46 +769,71 @@ def main() -> int:
             entry.focus_set()
             return
         clear_queue()
+        cancel.clear()
         state["busy"] = True
         state["error"] = False
-        start_button.configure(text="下載中…")
-        style_start()
+        style_download()
         status_text.set("正在連線與解析…")
         Thread(
             target=run_download_isolated,
-            args=(values, Path(output.get()).expanduser(), events),
+            args=(values, Path(output.get()).expanduser(), events, cancel),
             daemon=True,
         ).start()
 
-    def style_start(*, hover: bool = False) -> None:
-        busy = state["busy"]
-        start_button.configure(
-            bg=COLORS["accent_dark"] if busy or hover else COLORS["accent"],
-            fg="#D9C1B8" if busy else "#FFFFFF",
-            cursor="" if busy else "hand2",
+    def style_download(*, hover: bool = False) -> None:
+        stopping = state["busy"] and cancel.is_set()
+        download_button.configure(
+            text="正在停止…" if stopping else "停止下載" if state["busy"] else "開始下載",
+            state="disabled" if stopping else "normal",
+            bg=COLORS["accent_dark"] if stopping or hover else COLORS["accent"],
+            fg="#D9C1B8" if stopping else "#FFFFFF",
+            disabledforeground="#D9C1B8",
+            cursor="" if stopping else "hand2",
+            takefocus=not stopping,
         )
 
+    poll_id: str | None = None
+
     def poll() -> None:
+        nonlocal poll_id
+        poll_id = None
         yielded = process_gui_events(events, handle)
-        root.after(1 if yielded else 100, poll)
+        if not state["closed"]:
+            poll_id = root.after(1 if yielded else 100, poll)
+
+    def window_destroyed(event) -> None:
+        if event.widget == root:
+            state["closed"] = True
+            if poll_id is not None:
+                root.after_cancel(poll_id)
+
+    root.bind("<Destroy>", window_destroyed)
 
     def show_tool_help() -> None:
+        if getattr(sys, "frozen", False):
+            messagebox.showinfo(
+                "影片處理工具 FFmpeg",
+                "桌面 App 已內附 FFmpeg。如果檢查失敗，請重新下載並完整解壓縮桌面 App。",
+                parent=root,
+            )
+            return
+
         import webbrowser
 
         dialog = tk.Toplevel(root)
         dialog.title("準備影片處理工具")
         dialog.configure(bg=COLORS["paper"])
         dialog.transient(root)
-        panel = tk.Frame(dialog, bg=COLORS["paper"], padx=24, pady=22)
+        panel = tk.Frame(dialog, bg=COLORS["paper"], padx=px(24), pady=px(22))
         panel.pack(fill="both", expand=True)
         label(panel, "影片處理工具 FFmpeg", font=title_font).pack(anchor="w")
         label(
             panel,
             "一般安裝會一起準備好，不需要另外設定。\n"
             "若檢查失敗，下載不會開始。請依原本的安裝方式修復，完成後重新開啟。",
-            wraplength=470,
+            wraplength=px(470),
             justify="left",
-        ).pack(anchor="w", pady=(12, 14))
+        ).pack(anchor="w", pady=(px(12), px(14)))
         command = (
             "# uv tool 安裝（不需要專案資料夾）\n"
             "uv tool upgrade anicat --reinstall-package imageio-ffmpeg\n\n"
@@ -625,27 +853,27 @@ def main() -> int:
             copy_button.configure(text="已複製")
 
         buttons = tk.Frame(panel, bg=COLORS["paper"])
-        buttons.pack(fill="x", pady=(14, 12))
+        buttons.pack(fill="x", pady=(px(14), px(12)))
         copy_button = tk.Button(buttons, text="複製修復指令", command=copy_command)
         copy_button.pack(side="left")
         tk.Button(
             buttons,
             text="其他安裝方式",
             command=lambda: webbrowser.open("https://ffmpeg.org/download.html"),
-        ).pack(side="left", padx=8)
+        ).pack(side="left", padx=px(8))
         tk.Button(buttons, text="關閉", command=dialog.destroy).pack(side="right")
         label(
             panel,
             "完成後關閉此說明，再按「開始下載」，程式會重新檢查。",
             font=small_font,
-            wraplength=470,
+            wraplength=px(470),
             justify="left",
         ).pack(anchor="w")
         dialog.bind("<Escape>", lambda _event: dialog.destroy())
         copy_button.focus_set()
 
     actions = tk.Frame(form, bg=COLORS["paper"])
-    actions.grid(row=2, column=0, sticky="ew", pady=(18, 0))
+    actions.grid(row=2, column=0, sticky="ew", pady=(px(18), 0))
     actions.grid_columnconfigure(0, weight=1)
     tool_info = tk.Frame(actions, bg=COLORS["paper"])
     tool_info.grid(row=0, column=0, sticky="w")
@@ -656,51 +884,137 @@ def main() -> int:
     tool_help = label(
         tool_info,
         "工具安裝說明",
-        font=("Helvetica Neue", 9, "underline"),
+        font=(body_family, 9, "underline"),
         fg=COLORS["accent"],
         cursor="hand2",
         takefocus=True,
-        highlightthickness=1,
+        highlightthickness=px(1),
         highlightbackground=COLORS["paper"],
         highlightcolor=COLORS["accent"],
     )
-    tool_help.pack(anchor="w", pady=(4, 0))
+    tool_help.pack(anchor="w", pady=(px(4), 0))
     tool_help.bind("<Button-1>", lambda _event: show_tool_help())
     tool_help.bind("<Return>", lambda _event: show_tool_help())
     tool_help.bind("<space>", lambda _event: show_tool_help())
-    start_button = tk.Label(
+    download_button = tk.Label(
         actions,
         text="開始下載",
-        font=("Helvetica Neue", 11, "bold"),
+        font=(body_family, 11, "bold"),
         bg=COLORS["accent"],
         fg="#FFFFFF",
         relief="flat",
-        padx=20,
-        pady=11,
+        borderwidth=0,
+        padx=px(20),
+        pady=px(11),
         cursor="hand2",
         takefocus=True,
-        highlightthickness=2,
+        highlightthickness=px(2),
         highlightbackground=COLORS["accent"],
         highlightcolor=COLORS["ink"],
     )
-    start_button.grid(row=0, column=1, sticky="e")
-    start_button.bind("<Button-1>", lambda _event: start())
-    start_button.bind("<Return>", lambda _event: start())
-    start_button.bind("<space>", lambda _event: start())
-    start_button.bind("<Enter>", lambda _event: style_start(hover=True))
-    start_button.bind("<Leave>", lambda _event: style_start())
-    style_start()
+
+    def stop() -> None:
+        if state["busy"] and not cancel.is_set():
+            cancel.set()
+            style_download()
+            status_text.set("正在停止下載…")
+
+    def toggle_download(_event=None) -> None:
+        if state["busy"]:
+            stop()
+        else:
+            start()
+
+    download_button.grid(row=0, column=1, sticky="ew")
+    download_button.bind("<Button-1>", toggle_download)
+    download_button.bind("<Return>", toggle_download)
+    download_button.bind("<space>", toggle_download)
+    download_button.bind("<Enter>", lambda _event: style_download(hover=True))
+    download_button.bind("<Leave>", lambda _event: style_download())
+    style_download()
 
     def close() -> None:
         if state["busy"]:
-            messagebox.showinfo("下載進行中", "請等待這批工作結束後再關閉視窗。", parent=root)
+            if messagebox.askyesno("下載進行中", "停止下載並關閉 AniCat？", parent=root):
+                state["closing"] = True
+                stop()
         else:
             root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", close)
-    root.after(100, poll)
+    poll_id = root.after(100, poll)
+    smoke_errors: list[BaseException] = []
+    if smoke_test:
+
+        def smoke_failed(_kind, error, _traceback) -> None:
+            print(f"GUI smoke test failed: {error}", file=sys.stderr)
+            smoke_errors.append(error)
+            root.destroy()
+
+        def check_ui() -> None:
+            if sys.platform == "win32":
+                awareness = ctypes.c_int()
+                result = ctypes.windll.shcore.GetProcessDpiAwareness(None, ctypes.byref(awareness))
+                assert result == 0 and awareness.value == 1, "App is not system-DPI aware"
+            assert root.minsize() == (px(820), px(660)), "window DPI scale mismatch"
+            assert abs(logo.width() - app_icon.width() * scale / 8) <= 1
+            assert abs(mascot.height() - mascot_source.height() * scale / 4) <= 1
+            handle(GuiEvent("queue", total=12))
+            for index in range(12):
+                handle(GuiEvent("item", url=f"https://anime1.me/{index}", state="queued"))
+            long_path = (
+                r"C:\Users\Orange\AppData\Local\Temp\AniCat-PR25-8e8432a"
+                r"\acceptance-20261125-201745\output-stop\你又被殺了呢，偵探大人 [08].mp4"
+            )
+            path_label = item_rows["https://anime1.me/0"][3]
+            path_label.configure(text=long_path)
+            root.update_idletasks()
+            queue_width = queue_canvas.winfo_width()
+            wrap_widths = []
+            for width in (queue_width, queue_width - px(80), queue_width):
+                queue_canvas.event_generate("<Configure>", width=width)
+                root.update_idletasks()
+                for _row, _badge, title, detail in item_rows.values():
+                    for text_label in (title, detail):
+                        assert 0 < int(text_label.cget("wraplength")) <= text_label.winfo_width(), (
+                            "queue text wraps outside its visible column"
+                        )
+                assert path_label.cget("text") == long_path, "queue path was truncated"
+                assert path_label.winfo_height() > tkfont.Font(font=small_font).metrics("linespace")
+                wrap_widths.append(int(path_label.cget("wraplength")))
+            assert wrap_widths[1] < wrap_widths[0] == wrap_widths[2], (
+                f"queue wrap did not resize: {wrap_widths}"
+            )
+            root.update_idletasks()
+            # A wheel event over a row must reach the queue's top-level binding.
+            item_rows["https://anime1.me/0"][2].event_generate("<MouseWheel>", delta=-120)
+            assert queue_canvas.yview()[0] > 0, "queue wheel did not scroll"
+            handle(GuiEvent("item", url="https://anime1.me/0", state="error", detail="test"))
+            handle(GuiEvent("item", url="https://anime1.me/1", state="downloading"))
+            assert download_button.cget("text") == "開始下載"
+            state["busy"] = True
+            style_download()
+            assert download_button.cget("text") == "停止下載"
+            download_button.focus_force()
+            download_button.event_generate("<Return>")
+            assert cancel.is_set(), "keyboard stop did not cancel"
+            assert download_button.cget("text") == "正在停止…"
+            assert download_button.cget("state") == "disabled"
+            handle(None)
+            assert download_button.cget("text") == "開始下載"
+            assert download_button.cget("state") == "normal"
+            assert item_rows["https://anime1.me/0"][1].cget("text") == "失敗"
+            assert item_rows["https://anime1.me/1"][1].cget("text") == "已停止"
+            destroyed = []
+            root.bind("<Destroy>", lambda event: destroyed.append(event.widget == root), add="+")
+            state["closing"] = True
+            handle(None)
+            assert any(destroyed), "earlier download error prevented close"
+
+        root.report_callback_exception = smoke_failed
+        root.after(250, check_ui)
     root.mainloop()
-    return 0
+    return 1 if smoke_errors else 0
 
 
 if __name__ == "__main__":

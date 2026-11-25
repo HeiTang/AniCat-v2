@@ -5,6 +5,8 @@ from __future__ import annotations
 import shutil
 import subprocess
 
+FFMPEG_CREATION_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 def _works(executable: str) -> bool:
     try:
@@ -12,7 +14,7 @@ def _works(executable: str) -> bool:
             [executable, "-version"],
             capture_output=True,
             timeout=5,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            creationflags=FFMPEG_CREATION_FLAGS,
         )
     except (OSError, subprocess.TimeoutExpired):
         return False

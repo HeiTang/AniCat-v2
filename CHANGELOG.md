@@ -2,11 +2,14 @@
 
 ## Unreleased
 
+## 0.4.0
+
 ### Added
 
 - 新增桌面下載介面、FFmpeg 自動定位與安裝引導。
 - 新增 anime1.cc／anime1.in HLS 與 AES-128 下載、分段完整性、片長及全片解碼驗證。
 - 新增 `website/` 靜態介紹與使用說明，可在本機預覽。
+- 新增 GitHub Actions 桌面打包，產出 macOS（Apple Silicon、Intel）與 Windows（x64）的 ZIP。
 
 ### Changed
 
