@@ -669,14 +669,12 @@ def main(*, smoke_test: bool = False) -> int:
     def handle(event: GuiEvent | None) -> None:
         if event is None:
             state["busy"] = False
-            start_button.configure(text="開始下載")
-            stop_button.configure(state="disabled")
             if cancel.is_set():
                 for _row, badge, _title, detail in item_rows.values():
                     if badge.cget("text") not in ("完成", "已存在", "失敗"):
                         set_badge(badge, "cancelled")
                         detail.configure(text="已停止；重新開始即可重試。")
-            style_start()
+            style_download()
             if state["closing"]:
                 root.destroy()
                 return
@@ -690,7 +688,7 @@ def main(*, smoke_test: bool = False) -> int:
             )
         elif event.kind == "stop_error":
             state["closing"] = False
-            stop_button.configure(state="normal")
+            style_download()
             status_text.set("停止失敗，請再次按「停止下載」")
             messagebox.showerror("無法停止下載", event.detail, parent=root)
         elif event.kind == "tool":
@@ -739,11 +737,9 @@ def main(*, smoke_test: bool = False) -> int:
             return
         clear_queue()
         cancel.clear()
-        stop_button.configure(state="normal")
         state["busy"] = True
         state["error"] = False
-        start_button.configure(text="下載中…")
-        style_start()
+        style_download()
         status_text.set("正在連線與解析…")
         Thread(
             target=run_download_isolated,
@@ -751,12 +747,16 @@ def main(*, smoke_test: bool = False) -> int:
             daemon=True,
         ).start()
 
-    def style_start(*, hover: bool = False) -> None:
-        busy = state["busy"]
-        start_button.configure(
-            bg=COLORS["accent_dark"] if busy or hover else COLORS["accent"],
-            fg="#D9C1B8" if busy else "#FFFFFF",
-            cursor="" if busy else "hand2",
+    def style_download(*, hover: bool = False) -> None:
+        stopping = state["busy"] and cancel.is_set()
+        download_button.configure(
+            text="正在停止…" if stopping else "停止下載" if state["busy"] else "開始下載",
+            state="disabled" if stopping else "normal",
+            bg=COLORS["accent_dark"] if stopping or hover else COLORS["accent"],
+            fg="#D9C1B8" if stopping else "#FFFFFF",
+            disabledforeground="#D9C1B8",
+            cursor="" if stopping else "hand2",
+            takefocus=not stopping,
         )
 
     def poll() -> None:
@@ -850,13 +850,14 @@ def main(*, smoke_test: bool = False) -> int:
     tool_help.bind("<Button-1>", lambda _event: show_tool_help())
     tool_help.bind("<Return>", lambda _event: show_tool_help())
     tool_help.bind("<space>", lambda _event: show_tool_help())
-    start_button = tk.Label(
+    download_button = tk.Label(
         actions,
         text="開始下載",
         font=(body_family, 11, "bold"),
         bg=COLORS["accent"],
         fg="#FFFFFF",
         relief="flat",
+        borderwidth=0,
         padx=20,
         pady=11,
         cursor="hand2",
@@ -867,27 +868,24 @@ def main(*, smoke_test: bool = False) -> int:
     )
 
     def stop() -> None:
-        if state["busy"]:
+        if state["busy"] and not cancel.is_set():
             cancel.set()
-            stop_button.configure(state="disabled")
+            style_download()
             status_text.set("正在停止下載…")
 
-    stop_button = tk.Button(
-        actions,
-        text="停止下載",
-        command=stop,
-        state="disabled",
-        font=body_font,
-        takefocus=True,
-    )
-    stop_button.grid(row=1, column=1, sticky="e", pady=(8, 0))
-    start_button.grid(row=0, column=1, sticky="e")
-    start_button.bind("<Button-1>", lambda _event: start())
-    start_button.bind("<Return>", lambda _event: start())
-    start_button.bind("<space>", lambda _event: start())
-    start_button.bind("<Enter>", lambda _event: style_start(hover=True))
-    start_button.bind("<Leave>", lambda _event: style_start())
-    style_start()
+    def toggle_download(_event=None) -> None:
+        if state["busy"]:
+            stop()
+        else:
+            start()
+
+    download_button.grid(row=0, column=1, sticky="ew")
+    download_button.bind("<Button-1>", toggle_download)
+    download_button.bind("<Return>", toggle_download)
+    download_button.bind("<space>", toggle_download)
+    download_button.bind("<Enter>", lambda _event: style_download(hover=True))
+    download_button.bind("<Leave>", lambda _event: style_download())
+    style_download()
 
     def close() -> None:
         if state["busy"]:
@@ -916,8 +914,18 @@ def main(*, smoke_test: bool = False) -> int:
             assert queue_canvas.yview()[0] > 0, "queue wheel did not scroll"
             handle(GuiEvent("item", url="https://anime1.me/0", state="error", detail="test"))
             handle(GuiEvent("item", url="https://anime1.me/1", state="downloading"))
-            cancel.set()
+            assert download_button.cget("text") == "開始下載"
+            state["busy"] = True
+            style_download()
+            assert download_button.cget("text") == "停止下載"
+            download_button.focus_force()
+            download_button.event_generate("<Return>")
+            assert cancel.is_set(), "keyboard stop did not cancel"
+            assert download_button.cget("text") == "正在停止…"
+            assert download_button.cget("state") == "disabled"
             handle(None)
+            assert download_button.cget("text") == "開始下載"
+            assert download_button.cget("state") == "normal"
             assert item_rows["https://anime1.me/0"][1].cget("text") == "失敗"
             assert item_rows["https://anime1.me/1"][1].cget("text") == "已停止"
             destroyed = []
